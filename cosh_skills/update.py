@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TextIO
 
 from cosh_skills.config import load_config, save_config
-from cosh_skills.git_ops import update_repo
+from cosh_skills.git_ops import ensure_repo_path, update_repo
 from cosh_skills.installer import install_skills, remove_deprecated_managed_skills
 from cosh_skills.scanner import scan_skills
 from cosh_skills.verifier import verify_installation
@@ -40,7 +40,9 @@ def run_update(
     _log(out, "[1/6] 读取配置...")
     config = load_config(home=home)
     if repo_path is not None:
-        config["repo_path"] = str(Path(repo_path).expanduser())
+        configured_repo_path = ensure_repo_path(repo_path)
+        config["repo_path"] = str(configured_repo_path)
+        save_config(config, home=home)
     effective_repo_path = config.get("repo_path")
 
     _log(out, "[2/6] 检查 skill 仓库...")

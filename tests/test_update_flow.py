@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from cosh_skills.config import load_config, save_config
+from cosh_skills.git_ops import GitError
 from cosh_skills.update import run_update
 from cosh_skills.verifier import VerificationError
 
@@ -103,6 +104,25 @@ class UpdateFlowTest(unittest.TestCase):
                 output=io.StringIO(),
                 use_rsync=False,
             )
+
+            self.assertEqual(load_config(home=home)["repo_path"], str(repo))
+
+    def test_repo_path_argument_is_persisted_before_later_update_failure(self) -> None:
+        with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            config = load_config(home=home)
+            config["cli"]["codex"]["skills_path"] = str(home / "codex-skills")
+            save_config(config, home=home)
+            (repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+            with self.assertRaises(GitError):
+                run_update(
+                    cli_name="codex",
+                    repo_path=repo,
+                    home=home,
+                    output=io.StringIO(),
+                    use_rsync=False,
+                )
 
             self.assertEqual(load_config(home=home)["repo_path"], str(repo))
 
