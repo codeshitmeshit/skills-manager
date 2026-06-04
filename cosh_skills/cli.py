@@ -14,6 +14,7 @@ from cosh_skills.config import (
     set_config_value,
 )
 from cosh_skills.errors import CoshSkillsError, ExitCode
+from cosh_skills.skill_check import check_skills_or_raise
 from cosh_skills.update import run_update
 
 SUPPORTED_CLIS = ("codex", "claude")
@@ -70,6 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
     config_set.add_argument("key", help="配置项名称。")
     config_set.add_argument("value", help="配置项值。")
     config_set.set_defaults(handler=_handle_config_set)
+
+    check = subparsers.add_parser(
+        "check",
+        help="检查 skills 是否符合标准。",
+        description="检查 skills 目录下的 SKILL.md 是否符合基础标准。",
+    )
+    check.add_argument("--repo-path", default=".", help="要检查的 skill 仓库路径，默认是当前目录。")
+    check.set_defaults(handler=_handle_check)
 
     return parser
 
@@ -128,6 +137,11 @@ def _handle_config_set(args: argparse.Namespace) -> None:
     config = load_config()
     set_config_value(config, args.key, args.value)
     save_config(config)
+
+
+def _handle_check(args: argparse.Namespace) -> None:
+    result = check_skills_or_raise(args.repo_path)
+    print(f"skill 标准检查通过：共检查 {result.checked} 个 skill。")
 
 
 def _localize_argparse_text(text: str) -> str:

@@ -130,6 +130,12 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("非法配置项", result.stderr)
 
+    def test_check_repo_path_passes_for_current_repository(self) -> None:
+        result = self.run_cli("check", "--repo-path", str(ROOT))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skill 标准检查通过", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
