@@ -1,0 +1,4 @@
+interface:
+  display_name: "教程 HTML 文档"
+  short_description: "将技术内容整理成美观的静态 HTML 教程站点"
+  default_prompt: "Use $cosh-tutorial-html-docs to turn my technical notes into a polished static HTML tutorial site with guide.html and local assets."
