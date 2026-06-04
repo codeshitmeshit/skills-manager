@@ -57,12 +57,34 @@ def ensure_worktree_clean(repo: Path) -> None:
 
 
 def default_branch(repo: Path) -> str:
-    result = _git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    ref_name = result.stdout.strip()
+    result = _git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
+    ref_name = result.stdout.strip() if result.returncode == 0 else ""
     prefix = "origin/"
-    if not ref_name.startswith(prefix):
-        raise GitError("无法识别 origin/HEAD 对应的默认主分支。")
-    return ref_name.removeprefix(prefix)
+    if ref_name.startswith(prefix):
+        return ref_name.removeprefix(prefix)
+
+    upstream = _git(
+        repo,
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{u}",
+        check=False,
+    )
+    upstream_ref = upstream.stdout.strip() if upstream.returncode == 0 else ""
+    if upstream_ref.startswith(prefix):
+        return upstream_ref.removeprefix(prefix)
+
+    for candidate in ("main", "master"):
+        remote_ref = f"refs/remotes/origin/{candidate}"
+        if _git(repo, "show-ref", "--verify", "--quiet", remote_ref, check=False).returncode == 0:
+            return candidate
+
+    raise GitError(
+        "无法识别 origin 默认主分支。\n"
+        "请在 skill 仓库中执行：git remote set-head origin -a\n"
+        "或确认当前分支已设置 upstream。"
+    )
 
 
 def current_branch(repo: Path) -> str:

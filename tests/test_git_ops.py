@@ -84,6 +84,19 @@ class GitOpsTest(unittest.TestCase):
         with self.remote_repo() as repo:
             self.assertEqual(default_branch(repo), "main")
 
+    def test_default_branch_falls_back_to_current_upstream(self) -> None:
+        with self.remote_repo() as repo:
+            git(repo, "remote", "set-head", "origin", "-d")
+
+            self.assertEqual(default_branch(repo), "main")
+
+    def test_default_branch_falls_back_to_origin_main_ref(self) -> None:
+        with self.remote_repo() as repo:
+            git(repo, "remote", "set-head", "origin", "-d")
+            git(repo, "branch", "--unset-upstream")
+
+            self.assertEqual(default_branch(repo), "main")
+
     def test_update_repo_fetches_pulls_and_switches_to_default_branch(self) -> None:
         with self.remote_repo() as repo:
             git(repo, "checkout", "-b", "feature")
