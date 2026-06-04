@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
-from cosh_skills.config import load_config, save_config
-from cosh_skills.git_ops import ensure_repo_path, update_repo
-from cosh_skills.installer import install_skills, remove_deprecated_managed_skills
-from cosh_skills.scanner import scan_skills
-from cosh_skills.verifier import verify_installation
+from internal.config import load_config, save_config
+from internal.git_ops import ensure_repo_path, update_repo
+from internal.installer import install_skills, remove_deprecated_managed_skills
+from internal.scanner import scan_skills
+from internal.verifier import verify_installation
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ class CliCommandTest(unittest.TestCase):
         if home is not None:
             env["HOME"] = str(home)
         return subprocess.run(
-            [sys.executable, "-m", "cosh_skills.cli", *args],
+            [sys.executable, "-m", "internal.cli", *args],
             cwd=ROOT,
             env=env,
             check=False,

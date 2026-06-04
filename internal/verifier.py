@@ -6,8 +6,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from cosh_skills.errors import CoshSkillsError, ExitCode
-from cosh_skills.scanner import Skill
+from internal.errors import CoshSkillsError, ExitCode
+from internal.scanner import Skill
 
 CliRecognizer = Callable[[str, list[str]], tuple[bool, str]]
 

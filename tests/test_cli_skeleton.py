@@ -4,7 +4,7 @@ import subprocess
 import sys
 import unittest
 
-from cosh_skills.cli import build_parser, main
+from internal.cli import build_parser, main
 
 
 class CliSkeletonTest(unittest.TestCase):
@@ -18,7 +18,7 @@ class CliSkeletonTest(unittest.TestCase):
 
     def test_module_help_runs_successfully(self) -> None:
         result = subprocess.run(
-            [sys.executable, "-m", "cosh_skills.cli", "--help"],
+            [sys.executable, "-m", "internal.cli", "--help"],
             check=False,
             capture_output=True,
             text=True,

@@ -32,13 +32,13 @@ After installation, add an alias for your shell.
 For zsh, add this to `~/.zshrc`:
 
 ```bash
-alias cosh-skills='python3 -m cosh_skills.cli'
+alias cosh-skills='python3 -m internal.cli'
 ```
 
 For bash, add this to `~/.bashrc`:
 
 ```bash
-alias cosh-skills='python3 -m cosh_skills.cli'
+alias cosh-skills='python3 -m internal.cli'
 ```
 
 Reload your shell config:
@@ -144,7 +144,7 @@ python3 -m unittest discover -s tests
 Run the CLI directly during development:
 
 ```bash
-python3 -m cosh_skills.cli --help
+python3 -m internal.cli --help
 ```
 
 Run the install script syntax check:

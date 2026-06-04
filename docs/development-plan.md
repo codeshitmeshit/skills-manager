@@ -4,7 +4,7 @@
 
 ## 阶段 0：项目骨架
 
-- [x] 建立 Python 包结构：`cosh_skills/`
+- [x] 建立 Python 包结构：`internal/`
 - [x] 建立 CLI 入口：`cosh-skills`
 - [x] 建立测试目录和测试运行命令
 - [x] 明确测试隔离策略：所有 home/config/skills/repo 路径都使用临时目录
@@ -34,7 +34,7 @@
 - [x] 检查 Python 和 pip 是否可用
 - [x] 安装 Python 包和依赖，优先使用 `python -m pip install -e .`
 - [x] 输出可复制的 alias 示例：
-  - `alias cosh-skills='python -m cosh_skills.cli'`
+  - `alias cosh-skills='python -m internal.cli'`
   - 或指向安装后的 `cosh-skills` 可执行入口
 - [x] 提示用户根据当前 shell 选择写入 `~/.zshrc` 或 `~/.bashrc`
 - [x] 保持脚本无业务参数，业务配置仍通过 `cosh-skills config set ...` 或 `cosh-skills update ...` 完成
@@ -56,7 +56,7 @@
 
 再实现：
 
-- [x] `cosh_skills/config.py`
+- [x] `internal/config.py`
 - [x] 配置路径解析，默认使用 `~/.cosh-skills/config.json`
 - [x] 默认配置合并，避免旧配置缺字段
 - [x] 白名单字段 set 逻辑
@@ -73,7 +73,7 @@
 
 再实现：
 
-- [x] `cosh_skills/cli.py`
+- [x] `internal/cli.py`
 - [x] `update` 命令参数解析
 - [x] `config get/set` 命令参数解析
 - [x] 错误信息与退出码
@@ -92,7 +92,7 @@
 
 再实现：
 
-- [x] `cosh_skills/git_ops.py`
+- [x] `internal/git_ops.py`
 - [x] repo 存在性检查
 - [x] git 仓库检查
 - [x] 工作区干净检查
@@ -111,7 +111,7 @@
 
 再实现：
 
-- [x] `cosh_skills/scanner.py`
+- [x] `internal/scanner.py`
 - [x] skill 数据结构
 - [x] warning 收集和输出
 
@@ -129,7 +129,7 @@
 
 再实现：
 
-- [x] `cosh_skills/installer.py`
+- [x] `internal/installer.py`
 - [x] skills_path 检查
 - [x] copy 同步逻辑
 - [x] rsync 可用性检测和调用
@@ -165,7 +165,7 @@
 
 再实现：
 
-- [x] `cosh_skills/verifier.py`
+- [x] `internal/verifier.py`
 - [x] 文件级校验
 - [x] CLI 级校验预留接口
 - [x] strict verify 行为

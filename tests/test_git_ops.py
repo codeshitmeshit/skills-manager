@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from cosh_skills.git_ops import (
+from internal.git_ops import (
     GitError,
     GitUpdateResult,
     current_branch,

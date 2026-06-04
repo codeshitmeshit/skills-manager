@@ -10,9 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from cosh_skills.config import save_config
-from cosh_skills.errors import CoshSkillsError, ExitCode
-from cosh_skills.scanner import Skill
+from internal.config import save_config
+from internal.errors import CoshSkillsError, ExitCode
+from internal.scanner import Skill
 
 VALID_INSTALL_MODES = ("auto", "copy", "cli", "link")
 

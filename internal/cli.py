@@ -6,16 +6,16 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from cosh_skills import __version__
-from cosh_skills.config import (
+from internal import __version__
+from internal.config import (
     format_config_json,
     load_config,
     save_config,
     set_config_value,
 )
-from cosh_skills.errors import CoshSkillsError, ExitCode
-from cosh_skills.skill_check import check_skills_or_raise
-from cosh_skills.update import run_update
+from internal.errors import CoshSkillsError, ExitCode
+from internal.skill_check import check_skills_or_raise
+from internal.update import run_update
 
 SUPPORTED_CLIS = ("codex", "claude")
 

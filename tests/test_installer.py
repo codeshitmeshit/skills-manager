@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from cosh_skills.config import load_config
-from cosh_skills.installer import InstallError, install_managed_skills, install_skills, sync_skill
-from cosh_skills.scanner import Skill
+from internal.config import load_config
+from internal.installer import InstallError, install_managed_skills, install_skills, sync_skill
+from internal.scanner import Skill
 
 
 def make_skill(root: pathlib.Path, name: str) -> Skill:
@@ -162,8 +162,8 @@ class InstallerTest(unittest.TestCase):
 
         self.assertIn("非法 install_mode", str(caught.exception))
 
-    @mock.patch("cosh_skills.installer.shutil.which", return_value="/usr/bin/rsync")
-    @mock.patch("cosh_skills.installer.subprocess.run")
+    @mock.patch("internal.installer.shutil.which", return_value="/usr/bin/rsync")
+    @mock.patch("internal.installer.subprocess.run")
     def test_uses_rsync_when_available(self, run: mock.Mock, which: mock.Mock) -> None:
         run.return_value.returncode = 0
         with tempfile.TemporaryDirectory() as tmpdir:

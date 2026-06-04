@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from cosh_skills.errors import CoshSkillsError, ExitCode
+from internal.errors import CoshSkillsError, ExitCode
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "repo_path": None,

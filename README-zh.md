@@ -32,13 +32,13 @@ scripts/install.sh
 如果使用 zsh，将下面内容加入 `~/.zshrc`：
 
 ```bash
-alias cosh-skills='python3 -m cosh_skills.cli'
+alias cosh-skills='python3 -m internal.cli'
 ```
 
 如果使用 bash，将下面内容加入 `~/.bashrc`：
 
 ```bash
-alias cosh-skills='python3 -m cosh_skills.cli'
+alias cosh-skills='python3 -m internal.cli'
 ```
 
 重新加载 shell 配置：
@@ -144,7 +144,7 @@ python3 -m unittest discover -s tests
 开发时直接运行 CLI：
 
 ```bash
-python3 -m cosh_skills.cli --help
+python3 -m internal.cli --help
 ```
 
 检查安装脚本语法：

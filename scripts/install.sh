@@ -31,10 +31,10 @@ echo
 echo "[2/2] Add an alias for your shell:"
 echo
 echo "zsh users can add this to ~/.zshrc:"
-echo "  alias cosh-skills='${PYTHON_BIN} -m cosh_skills.cli'"
+echo "  alias cosh-skills='${PYTHON_BIN} -m internal.cli'"
 echo
 echo "bash users can add this to ~/.bashrc:"
-echo "  alias cosh-skills='${PYTHON_BIN} -m cosh_skills.cli'"
+echo "  alias cosh-skills='${PYTHON_BIN} -m internal.cli'"
 echo
 echo "Then reload your shell config, for example:"
 echo "  source ~/.zshrc"

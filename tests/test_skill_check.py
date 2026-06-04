@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import unittest
 
-from cosh_skills.skill_check import SkillCheckError, check_skills, check_skills_or_raise
+from internal.skill_check import SkillCheckError, check_skills, check_skills_or_raise
 
 
 class SkillCheckTest(unittest.TestCase):

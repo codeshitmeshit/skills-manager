@@ -73,7 +73,7 @@ class InstallScriptTest(unittest.TestCase):
         self.assertIn("~/.zshrc", result.stdout)
         self.assertIn("~/.bashrc", result.stdout)
         self.assertIn("alias cosh-skills=", result.stdout)
-        self.assertIn("python3 -m cosh_skills.cli", result.stdout)
+        self.assertIn("python3 -m internal.cli", result.stdout)
 
     def test_install_script_does_not_modify_shell_rc_files(self) -> None:
         result = self.run_install_script()

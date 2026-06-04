@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from cosh_skills.errors import CoshSkillsError, ExitCode
+from internal.errors import CoshSkillsError, ExitCode
 
 
 class ScanError(CoshSkillsError):

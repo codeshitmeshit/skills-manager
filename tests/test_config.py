@@ -5,7 +5,7 @@ import pathlib
 import tempfile
 import unittest
 
-from cosh_skills.config import (
+from internal.config import (
     ConfigError,
     DEFAULT_CONFIG,
     VALID_INSTALL_MODES,
@@ -18,7 +18,7 @@ from cosh_skills.config import (
 
 
 class ConfigTest(unittest.TestCase):
-    def test_config_path_defaults_to_home_cosh_skills_config_json(self) -> None:
+    def test_config_path_defaults_to_home_internal_config_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             home = pathlib.Path(tmpdir)
 

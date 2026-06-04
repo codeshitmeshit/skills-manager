@@ -6,10 +6,10 @@ import subprocess
 import tempfile
 import unittest
 
-from cosh_skills.config import load_config, save_config
-from cosh_skills.git_ops import GitError
-from cosh_skills.update import run_update
-from cosh_skills.verifier import VerificationError
+from internal.config import load_config, save_config
+from internal.git_ops import GitError
+from internal.update import run_update
+from internal.verifier import VerificationError
 
 
 def git(repo: pathlib.Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:

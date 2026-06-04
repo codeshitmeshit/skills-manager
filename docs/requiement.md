@@ -839,7 +839,7 @@ cosh-skills update --cli codex
 
 ```bash
 cosh-skills/
-├── cosh_skills/
+├── internal/
 │   ├── __init__.py
 │   ├── cli.py
 │   ├── config.py

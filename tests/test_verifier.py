@@ -4,8 +4,8 @@ import pathlib
 import tempfile
 import unittest
 
-from cosh_skills.scanner import Skill
-from cosh_skills.verifier import VerificationError, verify_cli_recognition, verify_installation
+from internal.scanner import Skill
+from internal.verifier import VerificationError, verify_cli_recognition, verify_installation
 
 
 def make_installed_skill(root: pathlib.Path, name: str) -> Skill:

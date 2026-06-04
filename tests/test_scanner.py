@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import unittest
 
-from cosh_skills.scanner import ScanError, Skill, scan_skills
+from internal.scanner import ScanError, Skill, scan_skills
 
 
 class ScannerTest(unittest.TestCase):
