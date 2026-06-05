@@ -164,7 +164,7 @@ class HooksTest(unittest.TestCase):
                 "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$hook_status\"; "
                 "} > $HOME/.cosh-skills/codex-hook-last.log 2>&1; "
                 "cat $HOME/.cosh-skills/codex-hook-last.log >> $HOME/.cosh-skills/codex-hook.log; "
-                "cat $HOME/.cosh-skills/codex-hook-last.log; "
+                "cat $HOME/.cosh-skills/codex-hook-last.log >&2; "
                 "if [ \"$hook_status\" -ne 0 ]; then "
                 "printf 'cosh-skills update failed during Codex startup. See %s for full log.\\n' "
                 "$HOME/.cosh-skills/codex-hook.log >&2; "

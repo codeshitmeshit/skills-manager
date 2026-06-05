@@ -94,7 +94,7 @@ def build_update_command(
         "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$hook_status\"; "
         f"}} > {run_log_path} 2>&1; "
         f"cat {run_log_path} >> {log_path}; "
-        f"cat {run_log_path}; "
+        f"cat {run_log_path} >&2; "
         "if [ \"$hook_status\" -ne 0 ]; then "
         "printf 'cosh-skills update failed during Codex startup. See %s for full log.\\n' "
         f"{log_path} >&2; "
