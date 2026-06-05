@@ -35,6 +35,11 @@ class HooksTest(unittest.TestCase):
 
         self.assertIn("/usr/bin/python3 -m internal.cli update --cli codex", command)
 
+    def test_build_update_command_can_include_force(self) -> None:
+        command = build_update_command(cli_name="codex", python_bin="/usr/bin/python3", force=True)
+
+        self.assertIn("/usr/bin/python3 -m internal.cli update --cli codex --force", command)
+
     def test_install_codex_session_start_hook_creates_hooks_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             hook_path = pathlib.Path(tmpdir) / ".codex" / "hooks.json"
@@ -167,6 +172,22 @@ class HooksTest(unittest.TestCase):
                 initialize_cli_hook(cli_name="claude", home=pathlib.Path(tmpdir))
 
         self.assertIn("暂只支持 codex", str(caught.exception))
+
+    def test_initialize_cli_hook_can_write_force_update_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            initialize_cli_hook(
+                cli_name="codex",
+                home=home,
+                repo_path=home / "repo",
+                python_bin="/usr/bin/python3",
+                force=True,
+            )
+
+            hook_document = json.loads((home / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+
+        self.assertIn("--force", hook_document["hooks"]["SessionStart"][0]["hooks"][0]["command"])
 
     def test_initialize_cli_hook_does_not_overwrite_existing_skills_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

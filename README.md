@@ -67,6 +67,12 @@ cosh-skills init --cli codex
 
 This writes `~/.codex/hooks.json` and uses the current Python interpreter module entry point instead of relying on a shell alias or user `PATH` inside the Codex hook environment. It also writes the current skill repository path and sets `cli.codex.skills_path` to `~/.codex/skills` when that value is not already configured.
 
+To make the startup hook continue syncing when the local skill repository is ahead of the remote, initialize it with:
+
+```bash
+cosh-skills init --cli codex --force
+```
+
 Codex requires new or changed non-managed hooks to be reviewed and trusted before they run. After `cosh-skills init --cli codex`, use `/hooks` in Codex to review and trust the hook.
 
 ## Basic Usage
@@ -128,6 +134,14 @@ Make CLI recognition verification failure block the update:
 cosh-skills update --cli codex --strict-verify
 ```
 
+Use local commits when the local skill repository is ahead of the remote:
+
+```bash
+cosh-skills update --cli codex --force
+```
+
+This does not overwrite uncommitted changes and does not push to the remote repository.
+
 ## First-Version Limits
 
 This version intentionally does not support:
@@ -140,7 +154,7 @@ This version intentionally does not support:
 - official CLI installer mode
 - link mode
 - automatic stash
-- force overwriting local git changes
+- force overwriting uncommitted local git changes
 - installing under a `cosh/` subdirectory
 
 ## Development

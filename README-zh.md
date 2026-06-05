@@ -67,6 +67,12 @@ cosh-skills init --cli codex
 
 该命令会写入 `~/.codex/hooks.json`，并将 hook 命令设置为当前 Python 解释器的模块入口，避免 Codex 启动 hook 中没有加载 shell alias 或用户 `PATH` 时找不到 `cosh-skills`。它还会写入当前 skill 仓库路径，并在缺省时设置 `cli.codex.skills_path` 为 `~/.codex/skills`。
 
+如果希望启动 hook 在本地 skill 仓库提交领先远程时仍继续同步，可以使用：
+
+```bash
+cosh-skills init --cli codex --force
+```
+
 Codex 对新增或变更的非托管 hook 需要信任后才会执行。运行 `cosh-skills init --cli codex` 后，在 Codex 里用 `/hooks` 审查并信任该 hook。
 
 ## 基本使用
@@ -128,6 +134,14 @@ cosh-skills update --cli codex --verify
 cosh-skills update --cli codex --strict-verify
 ```
 
+本地 skill 仓库提交领先远程时，确认使用本地提交继续同步：
+
+```bash
+cosh-skills update --cli codex --force
+```
+
+该参数不会覆盖未提交修改，也不会向远程仓库执行 push。
+
 ## 第一版限制
 
 当前版本暂不支持：
@@ -140,7 +154,7 @@ cosh-skills update --cli codex --strict-verify
 - 官方 CLI 安装器模式
 - link 模式
 - 自动 stash
-- 强制覆盖本地 git 改动
+- 强制覆盖未提交的本地 git 改动
 - 安装到 `cosh/` 子目录
 
 ## 开发

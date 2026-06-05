@@ -121,6 +121,28 @@ class GitOpsTest(unittest.TestCase):
             self.assertEqual(result.before_commit, before)
             self.assertEqual(result.after_commit, before)
 
+    def test_update_repo_local_ahead_requires_force(self) -> None:
+        with self.remote_repo() as repo:
+            (repo / "skill.txt").write_text("local ahead\n", encoding="utf-8")
+            commit_all(repo, "local ahead")
+
+            with self.assertRaises(GitError) as caught:
+                update_repo(repo)
+
+        self.assertIn("本地提交领先远程", str(caught.exception))
+        self.assertIn("--force", str(caught.exception))
+
+    def test_update_repo_local_ahead_succeeds_with_force(self) -> None:
+        with self.remote_repo() as repo:
+            (repo / "skill.txt").write_text("local ahead\n", encoding="utf-8")
+            local_commit = commit_all(repo, "local ahead")
+
+            result = update_repo(repo, force=True)
+
+            self.assertFalse(result.updated)
+            self.assertEqual(result.before_commit, local_commit)
+            self.assertEqual(result.after_commit, local_commit)
+
     def test_pull_conflict_fails_with_manual_resolution_message(self) -> None:
         with self.remote_repo() as repo:
             (repo / "skill.txt").write_text("local change\n", encoding="utf-8")

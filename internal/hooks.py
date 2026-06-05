@@ -35,6 +35,7 @@ def initialize_cli_hook(
     home: Path | None = None,
     repo_path: Path | None = None,
     python_bin: str | None = None,
+    force: bool = False,
 ) -> HookInitResult:
     if cli_name != "codex":
         raise HookInitError("当前 init hook 暂只支持 codex。")
@@ -45,6 +46,7 @@ def initialize_cli_hook(
         cli_name=cli_name,
         python_bin=python_bin if python_bin is not None else sys.executable,
         repo_path=effective_repo_path,
+        force=force,
     )
     hook_path = base_home / ".codex" / "hooks.json"
     added = install_codex_session_start_hook(hook_path=hook_path, command=command)
@@ -66,11 +68,21 @@ def initialize_cli_hook(
     )
 
 
-def build_update_command(*, cli_name: str, python_bin: str, repo_path: Path | None = None) -> str:
+def build_update_command(
+    *,
+    cli_name: str,
+    python_bin: str,
+    repo_path: Path | None = None,
+    force: bool = False,
+) -> str:
     prefix = ""
     if repo_path is not None:
         prefix = f"PYTHONPATH={shlex.quote(str(repo_path))} "
-    update_command = f"{prefix}{shlex.quote(python_bin)} -m internal.cli update --cli {shlex.quote(cli_name)}"
+    force_arg = " --force" if force else ""
+    update_command = (
+        f"{prefix}{shlex.quote(python_bin)} -m internal.cli "
+        f"update --cli {shlex.quote(cli_name)}{force_arg}"
+    )
     log_path = "$HOME/.cosh-skills/codex-hook.log"
     return (
         "mkdir -p \"$HOME/.cosh-skills\" && "

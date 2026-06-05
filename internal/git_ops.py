@@ -104,7 +104,7 @@ def fetch_origin(repo: Path) -> None:
     _git(repo, "fetch", "origin")
 
 
-def update_repo(repo_path: str | Path | None) -> GitUpdateResult:
+def update_repo(repo_path: str | Path | None, *, force: bool = False) -> GitUpdateResult:
     repo = ensure_repo_path(repo_path)
     ensure_git_repo(repo)
     ensure_worktree_clean(repo)
@@ -116,7 +116,13 @@ def update_repo(repo_path: str | Path | None) -> GitUpdateResult:
     before = current_commit(repo, branch)
     remote_ref = f"origin/{branch}"
     remote = current_commit(repo, remote_ref)
-    if before != remote:
+    if before != remote and _is_ancestor(repo, remote, before):
+        if not force:
+            raise GitError(
+                "检测到 skill 仓库本地提交领先远程，已停止更新。\n"
+                "如果确认要使用本地提交同步，请添加 --force。"
+            )
+    elif before != remote:
         _pull(repo)
 
     after = current_commit(repo, branch)
@@ -126,6 +132,11 @@ def update_repo(repo_path: str | Path | None) -> GitUpdateResult:
         after_commit=after,
         updated=before != after,
     )
+
+
+def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    result = _git(repo, "merge-base", "--is-ancestor", ancestor, descendant, check=False)
+    return result.returncode == 0
 
 
 def _pull(repo: Path) -> None:

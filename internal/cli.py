@@ -56,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--backup", action="store_true", help="覆盖同名目标 skill 前先备份。")
     update.add_argument("--verify", action="store_true", help="同步后尝试执行 CLI 识别校验。")
     update.add_argument("--strict-verify", action="store_true", help="CLI 识别校验失败时阻断本次更新。")
+    update.add_argument(
+        "--force",
+        action="store_true",
+        help="本地分支领先远程时仍使用本地提交继续同步；不会覆盖未提交修改。",
+    )
     update.set_defaults(handler=_handle_update)
 
     init = subparsers.add_parser(
@@ -64,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="为指定 CLI 添加启动 hook，并写入基础配置。",
     )
     init.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI，只支持 codex 或 claude。")
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="写入的启动 hook 使用 update --force，以便本地分支领先远程时仍继续同步。",
+    )
     init.set_defaults(handler=_handle_init)
 
     config = subparsers.add_parser(
@@ -135,11 +145,12 @@ def _handle_update(args: argparse.Namespace) -> None:
         backup=args.backup,
         verify_cli=args.verify or args.strict_verify,
         strict_verify=args.strict_verify,
+        force=args.force,
     )
 
 
 def _handle_init(args: argparse.Namespace) -> None:
-    result = initialize_cli_hook(cli_name=args.cli)
+    result = initialize_cli_hook(cli_name=args.cli, force=args.force)
     status = "已添加" if result.added else "已存在"
     print(f"{status} {result.cli_name} 启动 hook：{result.hook_path}")
     print(f"hook 命令：{result.command}")

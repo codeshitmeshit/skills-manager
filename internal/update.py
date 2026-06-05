@@ -33,6 +33,7 @@ def run_update(
     backup: bool = False,
     verify_cli: bool = False,
     strict_verify: bool = False,
+    force: bool = False,
     use_rsync: bool = True,
 ) -> UpdateResult:
     out = output if output is not None else sys.stdout
@@ -47,7 +48,7 @@ def run_update(
 
     _log(out, "[2/6] 检查 skill 仓库...")
     _log(out, "[3/6] 更新 skill 仓库...")
-    git_result = update_repo(effective_repo_path)
+    git_result = update_repo(effective_repo_path, force=force)
 
     _log(out, "[4/6] 扫描合法 skill...")
     scan_result = scan_skills(effective_repo_path)

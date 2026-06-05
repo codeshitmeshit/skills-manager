@@ -90,6 +90,31 @@ class UpdateFlowTest(unittest.TestCase):
             self.assertTrue((skills_path / "git-helper" / "SKILL.md").is_file())
             self.assertTrue((skills_path / "doc-helper" / "SKILL.md").is_file())
 
+    def test_update_with_force_syncs_local_ahead_commit(self) -> None:
+        with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            skills_path = home / "codex-skills"
+            config = load_config(home=home)
+            config["repo_path"] = str(repo)
+            config["cli"]["codex"]["skills_path"] = str(skills_path)
+            save_config(config, home=home)
+            local_skill = repo / "skills" / "local-helper"
+            local_skill.mkdir()
+            (local_skill / "SKILL.md").write_text("# local helper\n", encoding="utf-8")
+            local_commit = commit_all(repo, "add local helper")
+
+            result = run_update(
+                cli_name="codex",
+                home=home,
+                output=io.StringIO(),
+                force=True,
+                use_rsync=False,
+            )
+
+            self.assertFalse(result.git_updated)
+            self.assertEqual(result.commit, local_commit)
+            self.assertTrue((skills_path / "local-helper" / "SKILL.md").is_file())
+
     def test_repo_path_argument_is_persisted_after_success(self) -> None:
         with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
             home = pathlib.Path(tmpdir)

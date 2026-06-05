@@ -80,6 +80,17 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("暂只支持 codex", result.stderr)
 
+    def test_init_cli_force_writes_force_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "codex", "--force", home=home)
+
+            hooks = json.loads((home / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--force", hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+
     def test_update_cli_without_value_lists_supported_clis(self) -> None:
         result = self.run_cli("update", "--cli")
 
@@ -108,6 +119,7 @@ class CliCommandTest(unittest.TestCase):
                 "--backup",
                 "--verify",
                 "--strict-verify",
+                "--force",
                 home=pathlib.Path(tmpdir),
             )
 
