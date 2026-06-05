@@ -1,0 +1,4 @@
+interface:
+  display_name: "产品需求澄清"
+  short_description: "用不超过 5 个产品层面的选择题澄清需求合理性和表达清晰度"
+  default_prompt: "Use $cosh-product-clarifier to clarify this product requirement with product-level multiple-choice questions before any implementation planning."

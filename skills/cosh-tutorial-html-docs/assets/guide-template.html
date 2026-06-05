@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{SITE_TITLE}}</title>
+  <style>
+    :root {
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-soft: #dbeafe;
+      --teal: #0f766e;
+      --amber: #b45309;
+      --border: #e2e8f0;
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 30%),
+        linear-gradient(180deg, #f8fbff 0%, #eef2f7 100%);
+      color: var(--text);
+      line-height: 1.8;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 44px 24px 72px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+    .hero-main,
+    .hero-side,
+    .guide-card,
+    .roadmap {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .hero-main { padding: 38px; }
+    .hero-side { padding: 28px; }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: #1d4ed8;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 18px;
+      font-size: 24px;
+      line-height: 1.35;
+    }
+    h3 {
+      margin: 0 0 8px;
+      font-size: 21px;
+      line-height: 1.35;
+    }
+    p { margin: 0; color: var(--muted); }
+    .hero-text {
+      max-width: 700px;
+      font-size: 17px;
+    }
+
+    .stats {
+      display: grid;
+      gap: 14px;
+      margin-top: 28px;
+    }
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #f8fafc;
+    }
+    .stat strong {
+      display: block;
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .section-title {
+      margin: 38px 0 16px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .section-title p { max-width: 620px; }
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .guide-card {
+      display: flex;
+      min-height: 260px;
+      padding: 24px;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .guide-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(37, 99, 235, 0.42);
+      box-shadow: 0 22px 54px rgba(37, 99, 235, 0.12);
+    }
+    .card-top {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .number {
+      width: 46px;
+      height: 46px;
+      flex: 0 0 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: #eff6ff;
+      color: var(--primary);
+      font-weight: 800;
+    }
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .tag {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 22px;
+      padding: 9px 14px;
+      border-radius: 12px;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .roadmap {
+      margin-top: 18px;
+      padding: 26px;
+    }
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .roadmap-item {
+      padding: 16px;
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+    }
+    .roadmap-item strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .roadmap-item span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      .hero,
+      .guide-grid,
+      .roadmap-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .container { padding: 28px 16px 52px; }
+      .hero-main,
+      .hero-side,
+      .guide-card,
+      .roadmap { padding: 22px; border-radius: 18px; }
+      .card-top { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <div class="hero-main">
+        <span class="eyebrow">{{SITE_LABEL}}</span>
+        <h1>{{SITE_TITLE}}</h1>
+        <p class="hero-text">{{SITE_DESCRIPTION}}</p>
+      </div>
+      <aside class="hero-side">
+        <h2>{{SIDE_TITLE}}</h2>
+        <p>{{SIDE_DESCRIPTION}}</p>
+        <div class="stats">
+          <div class="stat"><strong>{{STAT_ONE_VALUE}}</strong><span>{{STAT_ONE_LABEL}}</span></div>
+          <div class="stat"><strong>{{STAT_TWO_VALUE}}</strong><span>{{STAT_TWO_LABEL}}</span></div>
+        </div>
+      </aside>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <div>
+          <h2>{{LIST_TITLE}}</h2>
+          <p>{{LIST_DESCRIPTION}}</p>
+        </div>
+      </div>
+      <div class="guide-grid">
+        <a class="guide-card" href="./{{GUIDE_ONE_FILE}}">
+          <div>
+            <div class="card-top">
+              <div class="number">01</div>
+              <div>
+                <h3>{{GUIDE_ONE_TITLE}}</h3>
+                <p>{{GUIDE_ONE_DESCRIPTION}}</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag">{{GUIDE_ONE_TAG_A}}</span>
+              <span class="tag">{{GUIDE_ONE_TAG_B}}</span>
+            </div>
+          </div>
+          <span class="cta">开始阅读</span>
+        </a>
+
+        <a class="guide-card" href="./{{GUIDE_TWO_FILE}}">
+          <div>
+            <div class="card-top">
+              <div class="number">02</div>
+              <div>
+                <h3>{{GUIDE_TWO_TITLE}}</h3>
+                <p>{{GUIDE_TWO_DESCRIPTION}}</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag">{{GUIDE_TWO_TAG_A}}</span>
+              <span class="tag">{{GUIDE_TWO_TAG_B}}</span>
+            </div>
+          </div>
+          <span class="cta">开始阅读</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="roadmap">
+      <h2>{{ROADMAP_TITLE}}</h2>
+      <div class="roadmap-grid">
+        <div class="roadmap-item"><strong>{{ROADMAP_ONE_TITLE}}</strong><span>{{ROADMAP_ONE_TEXT}}</span></div>
+        <div class="roadmap-item"><strong>{{ROADMAP_TWO_TITLE}}</strong><span>{{ROADMAP_TWO_TEXT}}</span></div>
+        <div class="roadmap-item"><strong>{{ROADMAP_THREE_TITLE}}</strong><span>{{ROADMAP_THREE_TEXT}}</span></div>
+        <div class="roadmap-item"><strong>{{ROADMAP_FOUR_TITLE}}</strong><span>{{ROADMAP_FOUR_TEXT}}</span></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
