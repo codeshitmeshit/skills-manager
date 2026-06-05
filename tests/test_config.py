@@ -58,6 +58,7 @@ class ConfigTest(unittest.TestCase):
 
             self.assertEqual(config["repo_path"], "/tmp/repo")
             self.assertIn("claude", config["cli"])
+            self.assertIn("qwen", config["cli"])
             self.assertEqual(config["cli"]["codex"]["install_mode"], "auto")
             self.assertEqual(config["cli"]["codex"]["managed_skills"], [])
 
@@ -82,9 +83,11 @@ class ConfigTest(unittest.TestCase):
 
         set_config_value(config, "cli.codex.skills_path", "~/.codex/skills")
         set_config_value(config, "cli.claude.skills_path", "~/.claude/skills")
+        set_config_value(config, "cli.qwen.skills_path", "~/.qwen/skills")
 
         self.assertEqual(config["cli"]["codex"]["skills_path"], "~/.codex/skills")
         self.assertEqual(config["cli"]["claude"]["skills_path"], "~/.claude/skills")
+        self.assertEqual(config["cli"]["qwen"]["skills_path"], "~/.qwen/skills")
 
     def test_set_valid_install_modes(self) -> None:
         for mode in VALID_INSTALL_MODES:
@@ -94,6 +97,13 @@ class ConfigTest(unittest.TestCase):
                 set_config_value(config, "cli.codex.install_mode", mode)
 
                 self.assertEqual(config["cli"]["codex"]["install_mode"], mode)
+
+    def test_set_qwen_install_mode(self) -> None:
+        config = load_config(home=pathlib.Path("/tmp/does-not-need-to-exist"))
+
+        set_config_value(config, "cli.qwen.install_mode", "copy")
+
+        self.assertEqual(config["cli"]["qwen"]["install_mode"], "copy")
 
     def test_rejects_unknown_config_key_with_allowed_keys(self) -> None:
         config = load_config(home=pathlib.Path("/tmp/does-not-need-to-exist"))

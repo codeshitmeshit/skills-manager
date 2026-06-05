@@ -37,9 +37,6 @@ def initialize_cli_hook(
     python_bin: str | None = None,
     force: bool = False,
 ) -> HookInitResult:
-    if cli_name != "codex":
-        raise HookInitError("当前 init hook 暂只支持 codex。")
-
     base_home = home if home is not None else Path.home()
     effective_repo_path = repo_path if repo_path is not None else Path(__file__).resolve().parents[1]
     command = build_update_command(
@@ -48,8 +45,15 @@ def initialize_cli_hook(
         repo_path=effective_repo_path,
         force=force,
     )
-    hook_path = base_home / ".codex" / "hooks.json"
-    added = install_codex_session_start_hook(hook_path=hook_path, command=command)
+
+    if cli_name == "codex":
+        hook_path = base_home / ".codex" / "hooks.json"
+        added = install_codex_session_start_hook(hook_path=hook_path, command=command)
+    elif cli_name == "qwen":
+        hook_path = base_home / ".qwen" / "settings.json"
+        added = install_qwen_session_start_hook(hook_path=hook_path, command=command)
+    else:
+        raise HookInitError("当前 init hook 暂只支持 codex、qwen。")
 
     config = load_config(home=base_home)
     config["repo_path"] = str(effective_repo_path)
@@ -128,8 +132,67 @@ def install_codex_session_start_hook(*, hook_path: Path, command: str) -> bool:
     return True
 
 
+def install_qwen_session_start_hook(*, hook_path: Path, command: str) -> bool:
+    document = _load_qwen_settings(hook_path)
+    hooks = document.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise HookInitError("Qwen Code settings.json 格式非法：hooks 必须是 JSON object。")
+
+    session_start = hooks.setdefault("SessionStart", [])
+    if not isinstance(session_start, list):
+        raise HookInitError("Qwen Code settings.json 格式非法：hooks.SessionStart 必须是 array。")
+
+    handler = {
+        "type": "command",
+        "command": command,
+        "statusMessage": "Updating cosh skills",
+    }
+    for group in session_start:
+        if not isinstance(group, dict):
+            continue
+        group_hooks = group.get("hooks")
+        if not isinstance(group_hooks, list):
+            continue
+        for index, existing in enumerate(group_hooks):
+            if not isinstance(existing, dict):
+                continue
+            existing_command = existing.get("command")
+            if existing_command == command:
+                return False
+            if isinstance(existing_command, str) and _is_cosh_skills_update_command(existing_command):
+                group_hooks[index] = handler
+                _save_hooks_document(hook_path, document)
+                return True
+
+    session_start.append(
+        {
+            "matcher": "startup|resume",
+            "hooks": [handler],
+        }
+    )
+    _save_hooks_document(hook_path, document)
+    return True
+
+
 def _is_cosh_skills_update_command(command: str) -> bool:
-    return "-m internal.cli update --cli codex" in command or "-m internal.hook_runner --cli codex" in command
+    return (
+        "-m internal.cli update --cli codex" in command
+        or "-m internal.hook_runner --cli codex" in command
+        or "-m internal.cli update --cli qwen" in command
+        or "-m internal.hook_runner --cli qwen" in command
+    )
+
+
+def _load_qwen_settings(hook_path: Path) -> dict[str, Any]:
+    if not hook_path.exists():
+        return {}
+    try:
+        loaded = json.loads(hook_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HookInitError(f"Qwen Code settings.json 不是合法 JSON：{exc}") from exc
+    if not isinstance(loaded, dict):
+        raise HookInitError("Qwen Code settings.json 格式非法：顶层必须是 JSON object。")
+    return loaded
 
 
 def _load_hooks_document(hook_path: Path) -> dict[str, Any]:

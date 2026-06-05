@@ -34,12 +34,12 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     finished_at = _timestamp()
     body = (
-        f"[{started_at}] codex hook start\n"
+        f"[{started_at}] {args.cli} hook start\n"
         f"{output.getvalue()}"
-        f"[{finished_at}] codex hook exit {status}\n"
+        f"[{finished_at}] {args.cli} hook exit {status}\n"
     )
     try:
-        _write_logs(body)
+        _write_logs(body, cli_name=args.cli)
     except OSError as exc:
         body += f"hook 日志写入失败：{exc}\n"
     print(json.dumps({"systemMessage": body}, ensure_ascii=False))
@@ -54,11 +54,12 @@ def _timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _write_logs(body: str) -> None:
+def _write_logs(body: str, *, cli_name: str = "codex") -> None:
     log_dir = Path.home() / ".cosh-skills"
     log_dir.mkdir(parents=True, exist_ok=True)
-    (log_dir / "codex-hook-last.log").write_text(body, encoding="utf-8")
-    with (log_dir / "codex-hook.log").open("a", encoding="utf-8") as log:
+    safe_name = cli_name.replace("/", "_").replace("\\", "_")
+    (log_dir / f"{safe_name}-hook-last.log").write_text(body, encoding="utf-8")
+    with (log_dir / f"{safe_name}-hook.log").open("a", encoding="utf-8") as log:
         log.write(body)
 
 

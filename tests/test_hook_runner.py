@@ -76,5 +76,53 @@ class HookRunnerTest(unittest.TestCase):
         self.assertIn("hook 日志写入失败", payload["systemMessage"])
 
 
+class QwenHookRunnerTest(unittest.TestCase):
+    def test_hook_runner_for_qwen_prints_qwen_in_log_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            def fake_run_update(*, output, **kwargs) -> None:
+                output.write("完成：已同步 2 个 skill 到 qwen。\n")
+
+            stdout = io.StringIO()
+            with patch("internal.hook_runner.Path.home", return_value=home), patch(
+                "internal.hook_runner.run_update",
+                fake_run_update,
+            ), redirect_stdout(stdout):
+                result = run(["--cli", "qwen"])
+
+            payload = json.loads(stdout.getvalue())
+            last_log = (home / ".cosh-skills" / "qwen-hook-last.log").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        self.assertIn("systemMessage", payload)
+        self.assertIn("完成：已同步 2 个 skill 到 qwen", payload["systemMessage"])
+        self.assertIn("qwen hook exit 0", payload["systemMessage"])
+        self.assertEqual(last_log, payload["systemMessage"])
+
+    def test_hook_runner_for_qwen_reports_failure_in_qwen_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            def fake_run_update(*, output, **kwargs) -> None:
+                output.write("[1/6] 读取配置...\n")
+                raise GitError("git fetch origin 执行失败：network failed")
+
+            stdout = io.StringIO()
+            with patch("internal.hook_runner.Path.home", return_value=home), patch(
+                "internal.hook_runner.run_update",
+                fake_run_update,
+            ), redirect_stdout(stdout):
+                result = run(["--cli", "qwen", "--force"])
+
+            payload = json.loads(stdout.getvalue())
+            full_log = (home / ".cosh-skills" / "qwen-hook.log").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        self.assertIn("git fetch origin 执行失败", payload["systemMessage"])
+        self.assertIn("qwen hook exit 1", payload["systemMessage"])
+        self.assertEqual(full_log, payload["systemMessage"])
+
+
 if __name__ == "__main__":
     unittest.main()

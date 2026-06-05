@@ -11,6 +11,7 @@ from internal.hooks import (
     build_update_command,
     initialize_cli_hook,
     install_codex_session_start_hook,
+    install_qwen_session_start_hook,
 )
 
 
@@ -206,6 +207,123 @@ class HooksTest(unittest.TestCase):
             config = load_config(home=home)
 
         self.assertEqual(config["cli"]["codex"]["skills_path"], "/custom/codex/skills")
+
+
+class QwenHooksTest(unittest.TestCase):
+    def test_install_qwen_session_start_hook_creates_settings_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hook_path = pathlib.Path(tmpdir) / ".qwen" / "settings.json"
+
+            added = install_qwen_session_start_hook(
+                hook_path=hook_path,
+                command="/usr/bin/python3 -m internal.hook_runner --cli qwen",
+            )
+
+            document = json.loads(hook_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(added)
+        self.assertEqual(
+            document["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "/usr/bin/python3 -m internal.hook_runner --cli qwen",
+        )
+        self.assertEqual(document["hooks"]["SessionStart"][0]["matcher"], "startup|resume")
+
+    def test_install_qwen_session_start_hook_preserves_existing_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hook_path = pathlib.Path(tmpdir) / ".qwen" / "settings.json"
+            hook_path.parent.mkdir()
+            hook_path.write_text(
+                json.dumps(
+                    {
+                        "modelProviders": [],
+                        "permissions": {"approve": ["*"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            install_qwen_session_start_hook(
+                hook_path=hook_path,
+                command="/usr/bin/python3 -m internal.hook_runner --cli qwen",
+            )
+
+            document = json.loads(hook_path.read_text(encoding="utf-8"))
+
+        self.assertIn("modelProviders", document)
+        self.assertIn("permissions", document)
+        self.assertIn("SessionStart", document["hooks"])
+
+    def test_install_qwen_session_start_hook_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hook_path = pathlib.Path(tmpdir) / ".qwen" / "settings.json"
+            command = "/usr/bin/python3 -m internal.hook_runner --cli qwen"
+
+            first = install_qwen_session_start_hook(hook_path=hook_path, command=command)
+            second = install_qwen_session_start_hook(hook_path=hook_path, command=command)
+
+            document = json.loads(hook_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(len(document["hooks"]["SessionStart"]), 1)
+
+    def test_initialize_cli_hook_for_qwen_writes_settings_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            repo_path = home / "skills-manager"
+
+            result = initialize_cli_hook(
+                cli_name="qwen",
+                home=home,
+                repo_path=repo_path,
+                python_bin="/usr/bin/python3",
+            )
+
+            config = load_config(home=home)
+            settings = json.loads((home / ".qwen" / "settings.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(result.added)
+        self.assertEqual(config["repo_path"], str(repo_path))
+        self.assertEqual(config["cli"]["qwen"]["skills_path"], "~/.qwen/skills")
+        self.assertIn(
+            "-m internal.hook_runner --cli qwen",
+            settings["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        )
+
+    def test_initialize_cli_hook_for_qwen_with_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            initialize_cli_hook(
+                cli_name="qwen",
+                home=home,
+                repo_path=home / "repo",
+                python_bin="/usr/bin/python3",
+                force=True,
+            )
+
+            settings = json.loads((home / ".qwen" / "settings.json").read_text(encoding="utf-8"))
+
+        self.assertIn("--force", settings["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+
+    def test_build_update_command_for_qwen(self) -> None:
+        command = build_update_command(
+            cli_name="qwen",
+            python_bin="/usr/bin/python3",
+            repo_path=pathlib.Path("/tmp/skills-manager"),
+        )
+
+        self.assertIn(
+            "PYTHONPATH=/tmp/skills-manager /usr/bin/python3 -m internal.hook_runner --cli qwen",
+            command,
+        )
+
+    def test_initialize_cli_hook_rejects_unsupported_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(HookInitError) as caught:
+                initialize_cli_hook(cli_name="claude", home=pathlib.Path(tmpdir))
+
+        self.assertIn("暂只支持 codex、qwen", str(caught.exception))
 
 
 if __name__ == "__main__":

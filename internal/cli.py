@@ -18,7 +18,7 @@ from internal.hooks import initialize_cli_hook
 from internal.skill_check import check_skills_or_raise
 from internal.update import run_update
 
-SUPPORTED_CLIS = ("codex", "claude")
+SUPPORTED_CLIS = ("codex", "claude", "qwen")
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -131,9 +131,8 @@ def _supported_cli(value: str) -> str:
         return value
     raise argparse.ArgumentTypeError(
         "当前版本只支持：\n"
-        "- codex\n"
-        "- claude\n\n"
-        "暂不支持：\n"
+        + "\n".join(f"- {item}" for item in SUPPORTED_CLIS)
+        + "\n\n暂不支持：\n"
         f"- {value}"
     )
 
@@ -156,7 +155,8 @@ def _handle_init(args: argparse.Namespace) -> None:
     print(f"hook 命令：{result.command}")
     print(f"skill 仓库路径：{result.repo_path}")
     print(f"{result.cli_name} skills 路径：{result.skills_path}")
-    print("提示：Codex 需要通过 /hooks 信任新增或变更的非托管 hook 后才会执行。")
+    if args.cli == "codex":
+        print("提示：Codex 需要通过 /hooks 信任新增或变更的非托管 hook 后才会执行。")
 
 
 def _handle_config_get(args: argparse.Namespace) -> None:

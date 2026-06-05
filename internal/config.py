@@ -28,6 +28,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "last_updated_at": None,
             "managed_skills": [],
         },
+        "qwen": {
+            "install_mode": "auto",
+            "skills_path": None,
+            "last_commit": None,
+            "last_updated_at": None,
+            "managed_skills": [],
+        },
     },
 }
 
@@ -35,8 +42,10 @@ ALLOWED_CONFIG_KEYS = (
     "repo_path",
     "cli.codex.skills_path",
     "cli.claude.skills_path",
+    "cli.qwen.skills_path",
     "cli.codex.install_mode",
     "cli.claude.install_mode",
+    "cli.qwen.install_mode",
 )
 VALID_INSTALL_MODES = ("auto", "copy", "cli", "link")
 

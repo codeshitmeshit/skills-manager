@@ -44,6 +44,13 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("未配置 skill 仓库路径", result.stderr)
 
+    def test_update_cli_qwen_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.run_cli("update", "--cli", "qwen", home=pathlib.Path(tmpdir))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未配置 skill 仓库路径", result.stderr)
+
     def test_update_rejects_unsupported_cli(self) -> None:
         result = self.run_cli("update", "--cli", "all")
 
@@ -51,6 +58,7 @@ class CliCommandTest(unittest.TestCase):
         self.assertIn("当前版本只支持", result.stderr)
         self.assertIn("codex", result.stderr)
         self.assertIn("claude", result.stderr)
+        self.assertIn("qwen", result.stderr)
 
     def test_update_requires_cli(self) -> None:
         result = self.run_cli("update")
@@ -79,6 +87,32 @@ class CliCommandTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("暂只支持 codex", result.stderr)
+
+    def test_init_cli_qwen_writes_hook_and_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "qwen", home=home)
+
+            settings = json.loads((home / ".qwen" / "settings.json").read_text(encoding="utf-8"))
+            config = json.loads((home / ".cosh-skills" / "config.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Codex 需要通过 /hooks 信任", result.stdout)
+        self.assertIn("-m internal.hook_runner --cli qwen", settings["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+        self.assertEqual(config["repo_path"], str(ROOT))
+        self.assertEqual(config["cli"]["qwen"]["skills_path"], "~/.qwen/skills")
+
+    def test_init_cli_qwen_force_writes_force_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "qwen", "--force", home=home)
+
+            settings = json.loads((home / ".qwen" / "settings.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--force", settings["hooks"]["SessionStart"][0]["hooks"][0]["command"])
 
     def test_init_cli_force_writes_force_hook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
