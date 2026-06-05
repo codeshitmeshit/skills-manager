@@ -59,6 +59,16 @@ source ~/.bashrc
 cosh-skills --help
 ```
 
+初始化 Codex 启动 hook：
+
+```bash
+cosh-skills init --cli codex
+```
+
+该命令会写入 `~/.codex/hooks.json`，并将 hook 命令设置为当前 Python 解释器的模块入口，避免 Codex 启动 hook 中没有加载 shell alias 或用户 `PATH` 时找不到 `cosh-skills`。它还会写入当前 skill 仓库路径，并在缺省时设置 `cli.codex.skills_path` 为 `~/.codex/skills`。
+
+Codex 对新增或变更的非托管 hook 需要信任后才会执行。运行 `cosh-skills init --cli codex` 后，在 Codex 里用 `/hooks` 审查并信任该 hook。
+
 ## 基本使用
 
 设置本地 skill 仓库路径：

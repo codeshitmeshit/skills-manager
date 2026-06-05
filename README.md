@@ -59,6 +59,16 @@ Verify:
 cosh-skills --help
 ```
 
+Initialize the Codex startup hook:
+
+```bash
+cosh-skills init --cli codex
+```
+
+This writes `~/.codex/hooks.json` and uses the current Python interpreter module entry point instead of relying on a shell alias or user `PATH` inside the Codex hook environment. It also writes the current skill repository path and sets `cli.codex.skills_path` to `~/.codex/skills` when that value is not already configured.
+
+Codex requires new or changed non-managed hooks to be reviewed and trusted before they run. After `cosh-skills init --cli codex`, use `/hooks` in Codex to review and trust the hook.
+
 ## Basic Usage
 
 Set the local skill repository path:

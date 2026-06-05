@@ -14,6 +14,7 @@ from internal.config import (
     set_config_value,
 )
 from internal.errors import CoshSkillsError, ExitCode
+from internal.hooks import initialize_cli_hook
 from internal.skill_check import check_skills_or_raise
 from internal.update import run_update
 
@@ -56,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--verify", action="store_true", help="同步后尝试执行 CLI 识别校验。")
     update.add_argument("--strict-verify", action="store_true", help="CLI 识别校验失败时阻断本次更新。")
     update.set_defaults(handler=_handle_update)
+
+    init = subparsers.add_parser(
+        "init",
+        help="初始化指定 CLI 的启动 hook。",
+        description="为指定 CLI 添加启动 hook，并写入基础配置。",
+    )
+    init.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI，只支持 codex 或 claude。")
+    init.set_defaults(handler=_handle_init)
 
     config = subparsers.add_parser(
         "config",
@@ -127,6 +136,16 @@ def _handle_update(args: argparse.Namespace) -> None:
         verify_cli=args.verify or args.strict_verify,
         strict_verify=args.strict_verify,
     )
+
+
+def _handle_init(args: argparse.Namespace) -> None:
+    result = initialize_cli_hook(cli_name=args.cli)
+    status = "已添加" if result.added else "已存在"
+    print(f"{status} {result.cli_name} 启动 hook：{result.hook_path}")
+    print(f"hook 命令：{result.command}")
+    print(f"skill 仓库路径：{result.repo_path}")
+    print(f"{result.cli_name} skills 路径：{result.skills_path}")
+    print("提示：Codex 需要通过 /hooks 信任新增或变更的非托管 hook 后才会执行。")
 
 
 def _handle_config_get(args: argparse.Namespace) -> None:

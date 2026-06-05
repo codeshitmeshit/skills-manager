@@ -58,6 +58,28 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--cli", result.stderr)
 
+    def test_init_cli_codex_writes_hook_and_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "codex", home=home)
+
+            hooks = json.loads((home / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+            config = json.loads((home / ".cosh-skills" / "config.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Codex 需要通过 /hooks 信任", result.stdout)
+        self.assertIn("-m internal.cli update --cli codex", hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+        self.assertEqual(config["repo_path"], str(ROOT))
+        self.assertEqual(config["cli"]["codex"]["skills_path"], "~/.codex/skills")
+
+    def test_init_cli_claude_is_not_implemented_yet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.run_cli("init", "--cli", "claude", home=pathlib.Path(tmpdir))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("暂只支持 codex", result.stderr)
+
     def test_update_cli_without_value_lists_supported_clis(self) -> None:
         result = self.run_cli("update", "--cli")
 
