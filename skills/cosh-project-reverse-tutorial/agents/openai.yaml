@@ -1,0 +1,4 @@
+interface:
+  display_name: "项目逆向教程专家"
+  short_description: "使用 Subagent 并行拆解开源项目并生成 HTML 教程站点。"
+  default_prompt: "Use $cosh-project-reverse-tutorial to analyze this repository with subagents and generate a 7:3 HTML project tutorial."
