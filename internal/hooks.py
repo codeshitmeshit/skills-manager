@@ -80,27 +80,10 @@ def build_update_command(
         prefix = f"PYTHONPATH={shlex.quote(str(repo_path))} "
     force_arg = " --force" if force else ""
     update_command = (
-        f"{prefix}{shlex.quote(python_bin)} -m internal.cli "
-        f"update --cli {shlex.quote(cli_name)}{force_arg}"
+        f"{prefix}{shlex.quote(python_bin)} -m internal.hook_runner "
+        f"--cli {shlex.quote(cli_name)}{force_arg}"
     )
-    log_path = "$HOME/.cosh-skills/codex-hook.log"
-    run_log_path = "$HOME/.cosh-skills/codex-hook-last.log"
-    return (
-        "mkdir -p \"$HOME/.cosh-skills\" && "
-        "{ "
-        "printf '[%s] codex hook start\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\"; "
-        f"{update_command}; "
-        "hook_status=$?; "
-        "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$hook_status\"; "
-        f"}} > {run_log_path} 2>&1; "
-        f"cat {run_log_path} >> {log_path}; "
-        f"cat {run_log_path} >&2; "
-        "if [ \"$hook_status\" -ne 0 ]; then "
-        "printf 'cosh-skills update failed during Codex startup. See %s for full log.\\n' "
-        f"{log_path} >&2; "
-        "fi; "
-        "exit \"$hook_status\""
-    )
+    return update_command
 
 
 def install_codex_session_start_hook(*, hook_path: Path, command: str) -> bool:
@@ -146,7 +129,7 @@ def install_codex_session_start_hook(*, hook_path: Path, command: str) -> bool:
 
 
 def _is_cosh_skills_update_command(command: str) -> bool:
-    return "-m internal.cli update --cli codex" in command
+    return "-m internal.cli update --cli codex" in command or "-m internal.hook_runner --cli codex" in command
 
 
 def _load_hooks_document(hook_path: Path) -> dict[str, Any]:

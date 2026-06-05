@@ -69,7 +69,7 @@ class CliCommandTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Codex 需要通过 /hooks 信任", result.stdout)
-        self.assertIn("-m internal.cli update --cli codex", hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+        self.assertIn("-m internal.hook_runner --cli codex", hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"])
         self.assertEqual(config["repo_path"], str(ROOT))
         self.assertEqual(config["cli"]["codex"]["skills_path"], "~/.codex/skills")
 
