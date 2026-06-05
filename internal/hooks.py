@@ -84,15 +84,22 @@ def build_update_command(
         f"update --cli {shlex.quote(cli_name)}{force_arg}"
     )
     log_path = "$HOME/.cosh-skills/codex-hook.log"
+    run_log_path = "$HOME/.cosh-skills/codex-hook-last.log"
     return (
         "mkdir -p \"$HOME/.cosh-skills\" && "
         "{ "
         "printf '[%s] codex hook start\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\"; "
         f"{update_command}; "
-        "status=$?; "
-        "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$status\"; "
-        "exit \"$status\"; "
-        f"}} >> {log_path} 2>&1"
+        "hook_status=$?; "
+        "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$hook_status\"; "
+        f"}} > {run_log_path} 2>&1; "
+        f"cat {run_log_path} >> {log_path}; "
+        f"cat {run_log_path}; "
+        "if [ \"$hook_status\" -ne 0 ]; then "
+        "printf 'cosh-skills update failed during Codex startup. See %s for full log.\\n' "
+        f"{log_path} >&2; "
+        "fi; "
+        "exit \"$hook_status\""
     )
 
 

@@ -22,7 +22,8 @@ class HooksTest(unittest.TestCase):
             repo_path=pathlib.Path("/tmp/skills-manager"),
         )
 
-        self.assertIn(">> $HOME/.cosh-skills/codex-hook.log 2>&1", command)
+        self.assertIn("$HOME/.cosh-skills/codex-hook.log", command)
+        self.assertIn("$HOME/.cosh-skills/codex-hook-last.log", command)
         self.assertIn(
             "PYTHONPATH=/tmp/skills-manager /usr/bin/python3 -m internal.cli update --cli codex",
             command,
@@ -159,10 +160,16 @@ class HooksTest(unittest.TestCase):
                 "mkdir -p \"$HOME/.cosh-skills\" && { "
                 "printf '[%s] codex hook start\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\"; "
                 f"PYTHONPATH={repo_path} /usr/bin/python3 -m internal.cli update --cli codex; "
-                "status=$?; "
-                "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$status\"; "
-                "exit \"$status\"; "
-                "} >> $HOME/.cosh-skills/codex-hook.log 2>&1"
+                "hook_status=$?; "
+                "printf '[%s] codex hook exit %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S')\" \"$hook_status\"; "
+                "} > $HOME/.cosh-skills/codex-hook-last.log 2>&1; "
+                "cat $HOME/.cosh-skills/codex-hook-last.log >> $HOME/.cosh-skills/codex-hook.log; "
+                "cat $HOME/.cosh-skills/codex-hook-last.log; "
+                "if [ \"$hook_status\" -ne 0 ]; then "
+                "printf 'cosh-skills update failed during Codex startup. See %s for full log.\\n' "
+                "$HOME/.cosh-skills/codex-hook.log >&2; "
+                "fi; "
+                "exit \"$hook_status\""
             ),
         )
 
