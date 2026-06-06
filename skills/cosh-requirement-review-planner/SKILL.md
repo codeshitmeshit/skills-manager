@@ -22,7 +22,7 @@ description: 在产品需求澄清完成后，对需求和技术方案进行评�
 └── status.json
 ```
 
-`<需求名>` 使用用户给出的需求名称；如果没有明确名称，先基于需求内容生成一个简短中文名称并请用户确认。目录名避免路径分隔符和控制字符，空格可替换为短横线。
+`<需求名>` 使用用户给出的需求名称；如果没有明确名称，先基于需求内容生成一个简短英文需求概括并请用户确认。自动生成的目录名必须使用 kebab-case，也就是小写英文单词用短横线连接，例如 `skill-cli-scope-update-filter`。目录名避免路径分隔符和控制字符，不使用中文、空格、下划线或驼峰。
 
 `status.json` 记录当前阶段，必须在每次阶段推进后更新：
 
@@ -134,6 +134,7 @@ python3 skills/cosh-requirement-review-planner/scripts/requirement_status.py --j
 ## 输出规则
 
 - 需求归档路径固定为 `.cosh-docs/requirment/<需求名>/`。
+- 未明确提供需求名时，自动生成的 `<需求名>` 必须是英文 kebab-case，格式为 `word-word-word`。
 - 先产出 `requirement.md` 和 `review.md`。
 - 只有方案评审无阻塞问题后才产出 `checklist.md`。
 - 只有用户明确确认 checklist 后才产出 `todolist.md`。
@@ -149,6 +150,7 @@ python3 skills/cosh-requirement-review-planner/scripts/requirement_status.py --j
 - checklist 未确认前没有创建 todolist。
 - checklist 项有编号、验证方法、预期结果和关联需求点。
 - todolist 项有编号、依赖、完成标准和关联 checklist 编号。
+- 自动生成的需求目录名使用英文 kebab-case，不使用中文、空格、下划线或驼峰。
 - `status.json` 的阶段与实际文件一致。
 - 等待用户动作时 `waiting_for_user` 为 `true`，但 `stage` 仍保留业务阶段。
 - 所有人工确认都同时记录在 Markdown 和 `status.json.confirmations`。

@@ -9,43 +9,27 @@ from pathlib import Path
 from typing import Any
 
 from internal.errors import CoshSkillsError, ExitCode
+from internal.skill_metadata import SUPPORTED_CLIS
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "repo_path": None,
     "last_repo_commit": None,
     "cli": {
-        "codex": {
+        cli_name: {
             "install_mode": "auto",
             "skills_path": None,
             "last_commit": None,
             "last_updated_at": None,
             "managed_skills": [],
-        },
-        "claude": {
-            "install_mode": "auto",
-            "skills_path": None,
-            "last_commit": None,
-            "last_updated_at": None,
-            "managed_skills": [],
-        },
-        "qwen": {
-            "install_mode": "auto",
-            "skills_path": None,
-            "last_commit": None,
-            "last_updated_at": None,
-            "managed_skills": [],
-        },
+        }
+        for cli_name in SUPPORTED_CLIS
     },
 }
 
-ALLOWED_CONFIG_KEYS = (
-    "repo_path",
-    "cli.codex.skills_path",
-    "cli.claude.skills_path",
-    "cli.qwen.skills_path",
-    "cli.codex.install_mode",
-    "cli.claude.install_mode",
-    "cli.qwen.install_mode",
+ALLOWED_CONFIG_KEYS = ("repo_path",) + tuple(
+    f"cli.{cli_name}.{field}"
+    for cli_name in SUPPORTED_CLIS
+    for field in ("skills_path", "install_mode")
 )
 VALID_INSTALL_MODES = ("auto", "copy", "cli", "link")
 

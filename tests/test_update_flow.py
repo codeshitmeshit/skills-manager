@@ -90,6 +90,100 @@ class UpdateFlowTest(unittest.TestCase):
             self.assertTrue((skills_path / "git-helper" / "SKILL.md").is_file())
             self.assertTrue((skills_path / "doc-helper" / "SKILL.md").is_file())
 
+    def test_update_skips_skills_outside_cli_scope(self) -> None:
+        with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            skills_path = home / "codex-skills"
+            config = load_config(home=home)
+            config["repo_path"] = str(repo)
+            config["cli"]["codex"]["skills_path"] = str(skills_path)
+            save_config(config, home=home)
+            add_local_skill(repo, "codex-helper", cli_scope=("codex", "qwen"))
+            add_local_skill(repo, "claude-helper", cli_scope=("claude",))
+            commit_all(repo, "add scoped skills")
+            output = io.StringIO()
+
+            result = run_update(
+                cli_name="codex",
+                home=home,
+                output=output,
+                force=True,
+                use_rsync=False,
+            )
+            saved = load_config(home=home)
+
+            self.assertEqual(result.synced_count, 2)
+            self.assertEqual(result.skipped_count, 1)
+            self.assertTrue((skills_path / "git-helper" / "SKILL.md").is_file())
+            self.assertTrue((skills_path / "codex-helper" / "SKILL.md").is_file())
+            self.assertFalse((skills_path / "claude-helper").exists())
+            self.assertEqual(
+                saved["cli"]["codex"]["managed_skills"],
+                ["codex-helper", "git-helper"],
+            )
+            self.assertIn("已跳过 1 个不适用于 codex 的 skill。", output.getvalue())
+            self.assertIn("完成：已同步 2 个 skill 到 codex。", output.getvalue())
+
+    def test_update_allows_openclaw_and_hermes_scoped_skill(self) -> None:
+        with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            openclaw_path = home / "openclaw-skills"
+            hermes_path = home / "hermes-skills"
+            config = load_config(home=home)
+            config["repo_path"] = str(repo)
+            config["cli"]["openclaw"]["skills_path"] = str(openclaw_path)
+            config["cli"]["hermes"]["skills_path"] = str(hermes_path)
+            save_config(config, home=home)
+            add_local_skill(repo, "openclaw-agent-guide", cli_scope=("openclaw", "hermes"))
+            commit_all(repo, "add openclaw scoped skill")
+
+            openclaw_result = run_update(
+                cli_name="openclaw",
+                home=home,
+                output=io.StringIO(),
+                force=True,
+                use_rsync=False,
+            )
+            hermes_result = run_update(
+                cli_name="hermes",
+                home=home,
+                output=io.StringIO(),
+                force=True,
+                use_rsync=False,
+            )
+
+            self.assertEqual(openclaw_result.skipped_count, 0)
+            self.assertEqual(hermes_result.skipped_count, 0)
+            self.assertTrue((openclaw_path / "openclaw-agent-guide" / "SKILL.md").is_file())
+            self.assertTrue((hermes_path / "openclaw-agent-guide" / "SKILL.md").is_file())
+
+    def test_update_removes_previously_managed_skill_that_is_now_out_of_scope(self) -> None:
+        with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            skills_path = home / "codex-skills"
+            old_skill = skills_path / "claude-helper"
+            old_skill.mkdir(parents=True)
+            (old_skill / "SKILL.md").write_text("# old\n", encoding="utf-8")
+            config = load_config(home=home)
+            config["repo_path"] = str(repo)
+            config["cli"]["codex"]["skills_path"] = str(skills_path)
+            config["cli"]["codex"]["managed_skills"] = ["git-helper", "claude-helper"]
+            save_config(config, home=home)
+            add_local_skill(repo, "claude-helper", cli_scope=("claude",))
+            commit_all(repo, "add claude scoped skill")
+
+            run_update(
+                cli_name="codex",
+                home=home,
+                output=io.StringIO(),
+                force=True,
+                use_rsync=False,
+            )
+            saved = load_config(home=home)
+
+            self.assertFalse(old_skill.exists())
+            self.assertEqual(saved["cli"]["codex"]["managed_skills"], ["git-helper"])
+
     def test_update_with_force_syncs_local_ahead_commit(self) -> None:
         with _RemoteSkillRepo() as repo, tempfile.TemporaryDirectory() as tmpdir:
             home = pathlib.Path(tmpdir)
@@ -219,6 +313,24 @@ def add_remote_skill(repo: pathlib.Path, name: str) -> str:
         commit = commit_all(work, f"add {name}")
         git(work, "push", "origin", "main")
         return commit
+
+
+def add_local_skill(repo: pathlib.Path, name: str, *, cli_scope: tuple[str, ...] | None = None) -> None:
+    skill = repo / "skills" / name
+    skill.mkdir(parents=True)
+    if cli_scope is None:
+        scope_text = ""
+    else:
+        scope_text = "cli_scope:\n" + "".join(f"  - {item}\n" for item in cli_scope)
+    (skill / "SKILL.md").write_text(
+        "---\n"
+        f"name: {name}\n"
+        f"description: {name} description.\n"
+        f"{scope_text}"
+        "---\n\n"
+        f"# {name}\n",
+        encoding="utf-8",
+    )
 
 
 class _RemoteSkillRepo:

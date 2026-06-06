@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from internal.errors import CoshSkillsError, ExitCode
+from internal.skill_metadata import parse_cli_scope, parse_frontmatter
 
 
 class ScanError(CoshSkillsError):
@@ -18,6 +19,7 @@ class ScanError(CoshSkillsError):
 class Skill:
     name: str
     path: Path
+    cli_scope: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,17 @@ def scan_skills(repo_path: str | Path) -> ScanResult:
 
         skill_file = entry / "SKILL.md"
         if skill_file.is_file():
-            skills.append(Skill(name=entry.name, path=entry))
+            metadata, metadata_errors = parse_frontmatter(skill_file.read_text(encoding="utf-8"))
+            cli_scope, scope_errors = parse_cli_scope(metadata)
+            errors = [*metadata_errors, *scope_errors]
+            if errors:
+                raise ScanError(
+                    "{name}: SKILL.md 元数据非法：\n{items}".format(
+                        name=entry.name,
+                        items="\n".join(f"- {item}" for item in errors),
+                    )
+                )
+            skills.append(Skill(name=entry.name, path=entry, cli_scope=cli_scope))
         else:
             warnings.append(f"warning: {entry.name} 缺少 SKILL.md，已跳过。")
 

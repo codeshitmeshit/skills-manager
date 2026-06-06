@@ -16,9 +16,8 @@ from internal.config import (
 from internal.errors import CoshSkillsError, ExitCode
 from internal.hooks import initialize_cli_hook
 from internal.skill_check import check_skills_or_raise
+from internal.skill_metadata import SUPPORTED_CLIS
 from internal.update import run_update
-
-SUPPORTED_CLIS = ("codex", "claude", "qwen")
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -51,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="更新指定 CLI 的 skills。",
         description="更新本地 skill 仓库，并同步到指定 CLI 的 skills 目录。",
     )
-    update.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI，只支持 codex 或 claude。")
+    update.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI。")
     update.add_argument("--repo-path", help="本地 skill 仓库路径，第一次使用时可通过该参数写入配置。")
     update.add_argument("--backup", action="store_true", help="覆盖同名目标 skill 前先备份。")
     update.add_argument("--verify", action="store_true", help="同步后尝试执行 CLI 识别校验。")
@@ -68,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="初始化指定 CLI 的启动 hook。",
         description="为指定 CLI 添加启动 hook，并写入基础配置。",
     )
-    init.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI，只支持 codex 或 claude。")
+    init.add_argument("--cli", required=True, type=_supported_cli, help="目标 CLI。")
     init.add_argument(
         "--force",
         action="store_true",

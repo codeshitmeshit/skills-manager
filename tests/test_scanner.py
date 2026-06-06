@@ -46,6 +46,69 @@ class ScannerTest(unittest.TestCase):
         )
         self.assertEqual(result.warnings, [])
 
+    def test_reads_cli_scope_from_inline_frontmatter_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            source = repo / "skills" / "docs-helper"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text(
+                "---\n"
+                "name: docs-helper\n"
+                "description: Help with docs.\n"
+                "cli_scope: [codex, claude]\n"
+                "---\n\n"
+                "# Docs Helper\n",
+                encoding="utf-8",
+            )
+
+            result = scan_skills(repo)
+
+        self.assertEqual(
+            result.skills,
+            [Skill(name="docs-helper", path=source, cli_scope=("codex", "claude"))],
+        )
+
+    def test_reads_cli_scope_from_block_frontmatter_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            source = repo / "skills" / "docs-helper"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text(
+                "---\n"
+                "name: docs-helper\n"
+                "description: Help with docs.\n"
+                "cli_scope:\n"
+                "  - codex\n"
+                "  - qwen\n"
+                "---\n\n"
+                "# Docs Helper\n",
+                encoding="utf-8",
+            )
+
+            result = scan_skills(repo)
+
+        self.assertEqual(result.skills[0].cli_scope, ("codex", "qwen"))
+
+    def test_invalid_cli_scope_fails_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            source = repo / "skills" / "docs-helper"
+            source.mkdir(parents=True)
+            (source / "SKILL.md").write_text(
+                "---\n"
+                "name: docs-helper\n"
+                "description: Help with docs.\n"
+                "cli_scope: [not-a-cli]\n"
+                "---\n\n"
+                "# Docs Helper\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ScanError) as caught:
+                scan_skills(repo)
+
+        self.assertIn("cli_scope 包含不支持的 CLI", str(caught.exception))
+
     def test_warns_and_skips_directory_without_skill_md(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = pathlib.Path(tmpdir)

@@ -51,6 +51,20 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("未配置 skill 仓库路径", result.stderr)
 
+    def test_update_cli_openclaw_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.run_cli("update", "--cli", "openclaw", home=pathlib.Path(tmpdir))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未配置 skill 仓库路径", result.stderr)
+
+    def test_update_cli_hermes_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.run_cli("update", "--cli", "hermes", home=pathlib.Path(tmpdir))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未配置 skill 仓库路径", result.stderr)
+
     def test_update_rejects_unsupported_cli(self) -> None:
         result = self.run_cli("update", "--cli", "all")
 
@@ -59,6 +73,8 @@ class CliCommandTest(unittest.TestCase):
         self.assertIn("codex", result.stderr)
         self.assertIn("claude", result.stderr)
         self.assertIn("qwen", result.stderr)
+        self.assertIn("openclaw", result.stderr)
+        self.assertIn("hermes", result.stderr)
 
     def test_update_requires_cli(self) -> None:
         result = self.run_cli("update")
@@ -133,6 +149,8 @@ class CliCommandTest(unittest.TestCase):
         self.assertIn("当前版本支持", result.stderr)
         self.assertIn("codex", result.stderr)
         self.assertIn("claude", result.stderr)
+        self.assertIn("openclaw", result.stderr)
+        self.assertIn("hermes", result.stderr)
 
     def test_update_rejects_first_version_unsupported_parameters(self) -> None:
         for arg in ("--branch", "--skill", "--install-mode", "--skills-path"):

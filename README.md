@@ -9,6 +9,8 @@ First-version supported targets:
 - `codex`
 - `claude`
 - `qwen`
+- `openclaw`
+- `hermes`
 
 The tool expects you to clone the skill repository yourself. It updates that local git repository and syncs valid skills from:
 
@@ -100,6 +102,8 @@ Set the target skills path:
 cosh-skills config set cli.codex.skills_path ~/.codex/skills
 cosh-skills config set cli.claude.skills_path ~/.claude/skills
 cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
+cosh-skills config set cli.openclaw.skills_path ~/.openclaw/skills
+cosh-skills config set cli.hermes.skills_path ~/.hermes/skills
 ```
 
 Optionally set install mode. First version supports `auto` and `copy`; `cli` and `link` are accepted in config but not implemented for update.
@@ -108,6 +112,8 @@ Optionally set install mode. First version supports `auto` and `copy`; `cli` and
 cosh-skills config set cli.codex.install_mode copy
 cosh-skills config set cli.claude.install_mode auto
 cosh-skills config set cli.qwen.install_mode auto
+cosh-skills config set cli.openclaw.install_mode auto
+cosh-skills config set cli.hermes.install_mode auto
 ```
 
 Show config:
@@ -122,6 +128,8 @@ Update skills:
 cosh-skills update --cli codex
 cosh-skills update --cli claude
 cosh-skills update --cli qwen
+cosh-skills update --cli openclaw
+cosh-skills update --cli hermes
 ```
 
 First use can also provide `repo_path` inline:
@@ -155,6 +163,30 @@ cosh-skills update --cli codex --force
 ```
 
 This does not overwrite uncommitted changes and does not push to the remote repository.
+
+## Skill CLI Scope
+
+Skills are universal by default. If a skill has no CLI scope metadata, `cosh-skills update` syncs it to every supported target CLI.
+
+To restrict a skill to one or more target CLIs, add `cli_scope` to the skill's `SKILL.md` front matter:
+
+```markdown
+---
+name: codex-helper
+description: Help Codex workflows.
+cli_scope:
+  - codex
+  - qwen
+---
+```
+
+When updating another CLI, scoped skills that do not include the current target are skipped as expected. The update output prints a summary such as:
+
+```text
+已跳过 1 个不适用于 codex 的 skill。
+```
+
+The skipped skills are not installed, verified, or counted as synced skills for that CLI. `cosh-skills check` validates `cli_scope`; the current supported values are `codex`, `claude`, `qwen`, `openclaw`, and `hermes`.
 
 ## First-Version Limits
 

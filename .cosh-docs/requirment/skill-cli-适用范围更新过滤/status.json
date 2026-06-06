@@ -1,0 +1,39 @@
+{
+  "name": "skill-cli-适用范围更新过滤",
+  "stage": "done",
+  "waiting_for_user": false,
+  "updated_at": "2026-06-07T03:11:07+08:00",
+  "confirmed": {
+    "checklist": true,
+    "tested": true,
+    "done": true
+  },
+  "confirmations": {
+    "checklist": {
+      "item": "checklist",
+      "confirmed_at": "2026-06-07T02:55:28+08:00",
+      "summary": "用户回复“checklist通过”，确认当前验收 checklist 可以作为后续任务拆解依据。"
+    },
+    "tested": {
+      "item": "tested",
+      "confirmed_at": "2026-06-07T03:11:07+08:00",
+      "summary": "用户回复“可以归档了”，确认测试结果可以接受并进入需求归档闭环。"
+    },
+    "done": {
+      "item": "done",
+      "confirmed_at": "2026-06-07T03:11:07+08:00",
+      "summary": "用户回复“可以归档了”，确认该需求可以归档为完成。"
+    }
+  },
+  "files": {
+    "requirement": "requirement.md",
+    "review": "review.md",
+    "checklist": "checklist.md",
+    "todolist": "todolist.md"
+  },
+  "notes": [
+    "已完成实现并执行 python3 -m unittest discover -s tests，127 个测试通过；等待用户人工确认测试通过。",
+    "已追加 openclaw/hermes CLI 支持和 OpenClaw 指南 skill 的 cli_scope 限定，并执行 python3 -m unittest discover -s tests，131 个测试通过；等待用户人工确认测试通过。",
+    "用户确认可以归档，需求闭环完成。"
+  ]
+}

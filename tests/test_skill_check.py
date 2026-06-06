@@ -29,6 +29,68 @@ class SkillCheckTest(unittest.TestCase):
         self.assertEqual(result.checked, 1)
         self.assertEqual(result.errors, [])
 
+    def test_valid_cli_scope_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            skill = repo / "skills" / "git-helper"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\n"
+                "name: git-helper\n"
+                "description: Help with git workflows.\n"
+                "cli_scope:\n"
+                "  - openclaw\n"
+                "  - hermes\n"
+                "---\n\n"
+                "# Git Helper\n",
+                encoding="utf-8",
+            )
+
+            result = check_skills(repo)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.errors, [])
+
+    def test_invalid_cli_scope_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            skill = repo / "skills" / "git-helper"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\n"
+                "name: git-helper\n"
+                "description: Help with git workflows.\n"
+                "cli_scope: unknown\n"
+                "---\n\n"
+                "# Git Helper\n",
+                encoding="utf-8",
+            )
+
+            result = check_skills(repo)
+
+        self.assertFalse(result.ok)
+        self.assertIn("cli_scope 必须是 CLI 名称列表", "\n".join(result.errors))
+
+    def test_unknown_cli_scope_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = pathlib.Path(tmpdir)
+            skill = repo / "skills" / "git-helper"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\n"
+                "name: git-helper\n"
+                "description: Help with git workflows.\n"
+                "cli_scope: [not-a-cli]\n"
+                "---\n\n"
+                "# Git Helper\n",
+                encoding="utf-8",
+            )
+
+            result = check_skills(repo)
+
+        self.assertFalse(result.ok)
+        self.assertIn("cli_scope 包含不支持的 CLI", "\n".join(result.errors))
+
     def test_missing_skills_directory_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = check_skills(pathlib.Path(tmpdir))

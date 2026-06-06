@@ -11,7 +11,7 @@ from typing import TextIO
 from internal.config import load_config, save_config
 from internal.git_ops import ensure_repo_path, update_repo
 from internal.installer import install_skills, remove_deprecated_managed_skills
-from internal.scanner import scan_skills
+from internal.scanner import Skill, scan_skills
 from internal.verifier import verify_installation
 
 
@@ -21,6 +21,7 @@ class UpdateResult:
     commit: str
     git_updated: bool
     synced_count: int
+    skipped_count: int
     warnings: list[str]
 
 
@@ -54,11 +55,14 @@ def run_update(
     scan_result = scan_skills(effective_repo_path)
     for warning in scan_result.warnings:
         _log(out, warning)
+    skills_to_sync, skipped_skills = _filter_skills_for_cli(scan_result.skills, cli_name)
+    if skipped_skills:
+        _log(out, f"已跳过 {len(skipped_skills)} 个不适用于 {cli_name} 的 skill。")
 
     cli_config = config["cli"][cli_name]
     _log(out, f"[5/6] 同步到 {cli_name}...")
     install_result = install_skills(
-        scan_result.skills,
+        skills_to_sync,
         cli_name=cli_name,
         cli_config=cli_config,
         backup=backup,
@@ -68,7 +72,7 @@ def run_update(
 
     _log(out, "[6/6] 校验安装结果...")
     verify_result = verify_installation(
-        scan_result.skills,
+        skills_to_sync,
         cli_config["skills_path"],
         cli_name=cli_name,
         verify_cli=verify_cli,
@@ -77,7 +81,7 @@ def run_update(
     for warning in verify_result.warnings:
         _log(out, warning)
 
-    current_names = [skill.name for skill in scan_result.skills]
+    current_names = [skill.name for skill in skills_to_sync]
     remove_deprecated_managed_skills(
         previous_managed=cli_config.get("managed_skills", []),
         current_managed=current_names,
@@ -96,9 +100,21 @@ def run_update(
         commit=git_result.after_commit,
         git_updated=git_result.updated,
         synced_count=len(install_result.installed),
+        skipped_count=len(skipped_skills),
         warnings=[*scan_result.warnings, *verify_result.warnings],
     )
 
 
 def _log(output: TextIO, message: str) -> None:
     output.write(message + "\n")
+
+
+def _filter_skills_for_cli(skills: list[Skill], cli_name: str) -> tuple[list[Skill], list[Skill]]:
+    eligible: list[Skill] = []
+    skipped: list[Skill] = []
+    for skill in skills:
+        if skill.cli_scope is None or cli_name in skill.cli_scope:
+            eligible.append(skill)
+        else:
+            skipped.append(skill)
+    return eligible, skipped

@@ -9,6 +9,8 @@ English: [README.md](README.md)
 - `codex`
 - `claude`
 - `qwen`
+- `openclaw`
+- `hermes`
 
 工具要求你先自行 clone skill 仓库。它会更新这个本地 git 仓库，并从下面的位置扫描有效 skill：
 
@@ -100,6 +102,8 @@ cosh-skills config set repo_path /path/to/cosh-skills
 cosh-skills config set cli.codex.skills_path ~/.codex/skills
 cosh-skills config set cli.claude.skills_path ~/.claude/skills
 cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
+cosh-skills config set cli.openclaw.skills_path ~/.openclaw/skills
+cosh-skills config set cli.hermes.skills_path ~/.hermes/skills
 ```
 
 可选设置安装模式。第一版支持 `auto` 和 `copy`；`cli` 和 `link` 可以写入配置，但 `update` 暂未实现这两种模式。
@@ -108,6 +112,8 @@ cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
 cosh-skills config set cli.codex.install_mode copy
 cosh-skills config set cli.claude.install_mode auto
 cosh-skills config set cli.qwen.install_mode auto
+cosh-skills config set cli.openclaw.install_mode auto
+cosh-skills config set cli.hermes.install_mode auto
 ```
 
 查看配置：
@@ -122,6 +128,8 @@ cosh-skills config get
 cosh-skills update --cli codex
 cosh-skills update --cli claude
 cosh-skills update --cli qwen
+cosh-skills update --cli openclaw
+cosh-skills update --cli hermes
 ```
 
 第一次使用时，也可以在 `update` 命令中直接传入 `repo_path`：
@@ -155,6 +163,30 @@ cosh-skills update --cli codex --force
 ```
 
 该参数不会覆盖未提交修改，也不会向远程仓库执行 push。
+
+## Skill 适用 CLI 范围
+
+默认情况下，skill 是通用的。如果 `SKILL.md` 没有声明适用 CLI 范围，`cosh-skills update` 会把它同步到所有支持的目标 CLI。
+
+如果某个 skill 只适用于一个或多个 CLI，可以在该 skill 的 `SKILL.md` front matter 中添加 `cli_scope`：
+
+```markdown
+---
+name: codex-helper
+description: Help Codex workflows.
+cli_scope:
+  - codex
+  - qwen
+---
+```
+
+更新其他 CLI 时，不包含当前目标 CLI 的 scoped skill 会被预期跳过。更新输出会打印汇总提示，例如：
+
+```text
+已跳过 1 个不适用于 codex 的 skill。
+```
+
+被跳过的 skill 不会安装、校验，也不会计入该 CLI 的同步数量。`cosh-skills check` 会校验 `cli_scope`；当前支持的值是 `codex`、`claude`、`qwen`、`openclaw` 和 `hermes`。
 
 ## 第一版限制
 

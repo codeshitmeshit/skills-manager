@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from internal.errors import CoshSkillsError, ExitCode
+from internal.skill_metadata import parse_cli_scope, parse_frontmatter
 
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 
@@ -86,8 +87,11 @@ def _check_skill_dir(skill_dir: Path) -> list[str]:
         errors.append(f"{skill_name}: front matter 中的 name 必须等于目录名。")
 
     description = metadata.get("description")
-    if description is None or description.strip() == "":
+    if not isinstance(description, str) or description.strip() == "":
         errors.append(f"{skill_name}: front matter 中必须提供非空 description。")
+
+    _, scope_errors = parse_cli_scope(metadata)
+    errors.extend(f"{skill_name}: {item}" for item in scope_errors)
 
     body = _body_after_frontmatter(text)
     if not body.strip():
@@ -98,33 +102,12 @@ def _check_skill_dir(skill_dir: Path) -> list[str]:
     return errors
 
 
-def _parse_frontmatter(skill_name: str, text: str) -> tuple[dict[str, str], list[str]]:
+def _parse_frontmatter(skill_name: str, text: str) -> tuple[dict[str, object], list[str]]:
     if not text.startswith("---\n"):
         return {}, [f"{skill_name}: SKILL.md 必须以 YAML front matter 开头。"]
 
-    end = text.find("\n---\n", 4)
-    if end == -1:
-        return {}, [f"{skill_name}: SKILL.md 缺少 YAML front matter 结束标记。"]
-
-    metadata: dict[str, str] = {}
-    errors: list[str] = []
-    raw_frontmatter = text[4:end]
-    for line_number, raw_line in enumerate(raw_frontmatter.splitlines(), start=2):
-        line = raw_line.strip()
-        if not line:
-            continue
-        if ":" not in line:
-            errors.append(f"{skill_name}: front matter 第 {line_number} 行格式非法。")
-            continue
-
-        key, value = line.split(":", 1)
-        key = key.strip()
-        if not key:
-            errors.append(f"{skill_name}: front matter 第 {line_number} 行缺少 key。")
-            continue
-        metadata[key] = value.strip().strip("\"'")
-
-    return metadata, errors
+    metadata, errors = parse_frontmatter(text)
+    return metadata, [f"{skill_name}: {item}" for item in errors]
 
 
 def _body_after_frontmatter(text: str) -> str:
