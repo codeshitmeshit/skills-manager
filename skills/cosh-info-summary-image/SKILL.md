@@ -1,21 +1,23 @@
 ---
 name: cosh-info-summary-image
-description: 为网站或活动生成 16:9 中文信息摘要图。用户提供网站 URL、活动链接、活动描述，或要求收集信息、整理大纲、构建稳定生图 prompt、优先使用 Agent 生图工具生成图片、必要时回退到火山引擎 Seedream 生图并上传结果到阿里云 OSS 时使用。
+description: 为网站、活动、行情或事件生成 16:9 中文信息摘要图。用户提供网站 URL、活动链接、行情主题、事件描述，或要求收集信息、整理大纲、自动选择美观风格、构建稳定生图 prompt、在 Codex 中优先使用 imagegen 生图、必要时回退到火山引擎 Seedream 生图并上传结果到阿里云 OSS 时使用。
 ---
 
 # 信息摘要生图
 
 ## 目标
 
-根据用户提供的网站或事件信息，收集事实、整理中文摘要大纲、生成稳定的生图 prompt，产出一张适合文档/报告插图的 16:9 信息摘要图，并上传到 OSS 后返回摘要与 OSS 对象路径。
+根据用户提供的网站或事件信息，收集事实、整理中文摘要大纲、生成稳定的生图 prompt，产出一张适合文档/报告插图的 16:9 信息摘要图，并上传到 OSS 后返回摘要与完整 OSS 地址。
 
 ## 默认策略
 
 - 默认输出中文。
 - 默认图片比例为 16:9。
 - 默认图片用途为文档/报告插图，优先保证信息清晰和文字可读。
+- 默认使用美观但克制的信息图风格；用户可指定视觉风格，未指定时根据主题自动选择。
 - 默认最终只返回摘要与图片路径；不要默认输出完整过程资产包。
-- 优先使用 Agent 自带生图能力；除非用户指定，否则仅在 Agent 无可用生图能力时使用火山引擎 fallback。
+- 在 Codex 中执行时，优先使用 `imagegen` skill 的内置 `image_gen` 生图能力；除非用户指定或内置能力不可用，否则不要优先依赖外部生图 API。
+- 非 Codex 环境或内置生图不可用时，才使用火山引擎 fallback。
 - 任一关键内容、生成配置或上传配置缺失时，停止并询问用户，不做低置信度降级生成。
 
 ## 必需信息
@@ -56,10 +58,13 @@ description: 为网站或活动生成 16:9 中文信息摘要图。用户提供�
 2. 收集信息：网站类读取页面主题、定位、核心内容、品牌/视觉线索；事件类整理名称、背景、时间、地点、参与方、经过、结果和影响。
 3. 校验必需信息和配置。缺少任意关键项就停止询问。
 4. 生成中文摘要大纲。
-5. 用稳定模板生成最终生图 prompt。
-6. 优先调用 Agent 自带生图能力生成图片；没有可用能力时，使用 `scripts/volcengine_generate_image.py`。
-7. 使用 `scripts/upload_oss.py` 上传图片到 OSS。
-8. 返回中文摘要与 OSS 对象路径。
+5. 选择视觉风格：读取 `references/style-templates.md`。用户指定时遵循指定风格；未指定时根据摘要事实和主题自动选择最适合的一种，并写入 prompt。
+6. 用稳定模板生成最终生图 prompt。
+7. 在 Codex 中优先调用 `imagegen` skill 的内置 `image_gen` 工具生成图片。
+   - 使用 `imagegen` 时，将输出作为项目/上传用资产处理：生成后找到图片文件，复制或移动到 `/tmp` 或工作区中的明确路径，再上传 OSS。
+   - 如果内置 `image_gen` 不可用、执行失败，或当前环境不是 Codex，再使用 `scripts/volcengine_generate_image.py`。
+8. 使用 `scripts/upload_oss.py` 上传图片到 OSS。
+9. 返回中文摘要与完整 OSS 地址。
 
 ## 大纲格式
 
@@ -112,6 +117,9 @@ Key points to represent:
 Visual direction:
 {visual_direction}
 
+Style:
+{style_preset}
+
 Requirements:
 - Use a clean, modern, restrained document/report illustration style.
 - Use a landscape 16:9 composition.
@@ -123,10 +131,17 @@ Requirements:
 - The image should be suitable for embedding in technical documentation, reports, tutorials, or project notes.
 ```
 
+## 视觉风格模板
+
+视觉风格模板保存在 `references/style-templates.md`。只有在需要选择或填充风格时读取该文件。
+
+用户可以用自然语言指定风格，例如“金融终端风”“科技蓝图风”“极简白底风”。如果用户没有指定，必须根据已获取的事实和主题自动选择一种，不要额外询问。风格只能改变构图、色彩、材质、图表隐喻和视觉层级，不能改变事实。
+
 ## 脚本资源
 
-- `scripts/volcengine_generate_image.py`：当 Agent 没有可用生图能力时，调用火山引擎兼容 OpenAI 风格的图片生成接口。运行前必须确认所需环境变量已配置；缺失时停止询问用户。`VOLCENGINE_IMAGE_SIZE` 不要填 `16:9` 这类比例字符串；Seedream 5 接受 `WIDTHxHEIGHT`、`2k`、`3k` 或 `4k`，16:9 推荐填 `2560x1440`。
-- `scripts/upload_oss.py`：使用 Alibaba Cloud OSS Python SDK V2 上传本地图片并输出 OSS 对象路径。运行前必须确认 OSS 环境变量已配置；脚本只接受 `OSS_ENDPOINT`，并从标准 OSS endpoint 内部推导 SDK 所需 region；缺失必需项或 endpoint 无法推导 region 时停止询问用户。
+- `references/style-templates.md`：按需读取的视觉风格模板和自动选择规则。
+- `scripts/volcengine_generate_image.py`：仅当 Codex 内置 `imagegen` 不可用、当前环境不是 Codex，或用户明确指定外部 API 时，调用火山引擎兼容 OpenAI 风格的图片生成接口。运行前必须确认所需环境变量已配置；缺失时停止询问用户。`VOLCENGINE_IMAGE_SIZE` 不要填 `16:9` 这类比例字符串；Seedream 5 接受 `WIDTHxHEIGHT`、`2k`、`3k` 或 `4k`，16:9 推荐填 `2560x1440`。
+- `scripts/upload_oss.py`：使用 Alibaba Cloud OSS Python SDK V2 上传本地图片并输出完整 OSS 地址，格式为 `https://<bucket>.<endpoint>/<object-key>`。运行前必须确认 OSS 环境变量已配置；脚本只接受 `OSS_ENDPOINT`，并从标准 OSS endpoint 内部推导 SDK 所需 region；缺失必需项或 endpoint 无法推导 region 时停止询问用户。
 
 ## 配置指引
 
@@ -154,7 +169,7 @@ OSS 上传：
 <中文摘要>
 
 图片路径：
-<OSS 对象路径>
+<完整 OSS 地址>
 ```
 
 失败或停止时：
@@ -177,7 +192,9 @@ OSS 上传：
 
 - 输入类型已判断清楚。
 - 摘要和大纲只包含来源中能支撑的信息。
+- 视觉风格来自用户指定或 `references/style-templates.md` 自动选择结果。
 - 生图 prompt 使用稳定模板，默认 16:9，默认中文可见文字。
+- 在 Codex 中已优先尝试 `imagegen` 内置生图能力；只有不可用或用户指定时才使用外部 API。
 - 没有虚构事实、数字、人物、品牌、日期或截图。
 - 若使用 fallback，已检查火山引擎所需 key 和模型配置。
 - 上传前已检查 OSS key、bucket、endpoint 和对象路径，且 endpoint 可推导 SDK 所需 region。

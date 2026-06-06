@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求方案评审"
+  short_description: "归档需求，评审方案，确认测试清单后生成任务拆解"
+  default_prompt: "Use $cosh-requirement-review-planner to review this clarified requirement, archive the requirement docs, create a checklist for confirmation, and then create a todolist."

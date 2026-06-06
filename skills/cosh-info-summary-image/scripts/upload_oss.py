@@ -9,7 +9,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 
 def load_local_env() -> None:
@@ -103,6 +103,16 @@ def infer_region_from_endpoint(endpoint: str | None) -> str | None:
     return None if region.startswith("accelerate") else region
 
 
+def build_object_url(endpoint: str, bucket: str, object_key: str) -> str:
+    parsed = urlparse(endpoint if "://" in endpoint else f"https://{endpoint}")
+    scheme = parsed.scheme or "https"
+    host = parsed.netloc or parsed.path
+    if not host:
+        raise SystemExit("Cannot build OSS URL because endpoint host is empty.")
+    normalized_key = quote(object_key.lstrip("/"), safe="/")
+    return f"{scheme}://{bucket}.{host.rstrip('/')}/{normalized_key}"
+
+
 def access_key_pair() -> tuple[str, str]:
     access_key_id = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID") or os.getenv("OSS_ACCESS_KEY_ID")
     access_key_secret = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET") or os.getenv(
@@ -158,9 +168,10 @@ def main() -> int:
         ),
         str(local_file),
     )
-    print(object_key)
+    print(build_object_url(args.endpoint, args.bucket, object_key))
     print(f"status_code={result.status_code}", file=sys.stderr)
     print(f"request_id={result.request_id}", file=sys.stderr)
+    print(f"object_key={object_key}", file=sys.stderr)
     return 0
 
 
