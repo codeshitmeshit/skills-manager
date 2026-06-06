@@ -1,6 +1,6 @@
 ---
 name: cosh-product-clarifier
-description: Clarify product requirements, product ideas, PRD drafts, feature concepts, user scenarios, product goals, and value propositions through product-level multiple-choice questions. Use when the user wants to check whether a product requirement is reasonable, whether the intent is clear, or how to improve a product description before planning implementation; do not ask technical implementation questions.
+description: 通过产品层面的选择题澄清产品需求、产品想法、PRD 草稿、功能概念、用户场景、产品目标和价值主张。用户想在规划实现前检查产品需求是否合理、意图是否清楚，或改进产品描述时使用；不要询问技术实现问题。
 ---
 
 # 产品需求澄清

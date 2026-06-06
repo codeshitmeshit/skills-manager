@@ -1,6 +1,6 @@
 ---
 name: cosh-project-reverse-tutorial
-description: Use when the user wants to reverse-analyze a complete software repository, especially an open-source project, with mandatory Subagent collaboration and generate a 7:3 static HTML tutorial site. Triggers include requests to read an unfamiliar project, explain its architecture and Happy Path, trace real Git evolution, or produce .cosh-docs HTML project learning documentation using cosh-tutorial-html-docs.
+description: 当用户想逆向分析一个完整软件仓库，尤其是开源项目，并要求强制使用 Subagent 协作生成 7:3 静态 HTML 教程站点时使用。触发场景包括阅读陌生项目、解释架构和 Happy Path、追踪真实 Git 演进，或使用 cosh-tutorial-html-docs 产出 .cosh-docs HTML 项目学习文档。
 ---
 
 # 项目逆向拆解与 HTML 教程

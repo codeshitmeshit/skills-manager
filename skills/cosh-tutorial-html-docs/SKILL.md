@@ -1,6 +1,6 @@
 ---
 name: cosh-tutorial-html-docs
-description: Create or update polished static HTML tutorial documentation sites from technical notes, operation steps, project explanations, or learning material. Use when the user asks to generate tutorial pages, guide pages, how-to documentation, learning docs, project manuals, workflow explanations, deployment guides, troubleshooting guides, or any static HTML tutorial that should maintain a .cosh-docs/guide.html index and .cosh-docs/asset/ folder.
+description: 根据技术笔记、操作步骤、项目说明或学习资料创建或更新精美的静态 HTML 教程文档站点。用户要求生成教程页、指南页、how-to 文档、学习文档、项目手册、工作流说明、部署指南、故障排查指南，或任何需要维护 .cosh-docs/guide.html 目录页和 .cosh-docs/asset/ 资源目录的静态 HTML 教程时使用。
 ---
 
 # 教程 HTML 文档

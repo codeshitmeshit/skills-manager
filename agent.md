@@ -36,7 +36,7 @@ frontmatter 只放两个字段：
 ```yaml
 ---
 name: cosh-<skill-name>
-description: <what the skill does and when to use it>
+description: <用中文说明 skill 能做什么以及何时使用>
 ---
 ```
 
@@ -45,6 +45,7 @@ description: <what the skill does and when to use it>
 - skill 能做什么。
 - 用户怎么问时应该触发。
 - 涉及哪些文件类型、工具、任务场景或产出形式。
+- 必须使用中文撰写；以后新增或更新本仓库的 skill 描述都使用中文。
 
 不要在正文里写“何时使用此 skill”作为主要触发说明，因为正文只有触发后才会被读取。
 

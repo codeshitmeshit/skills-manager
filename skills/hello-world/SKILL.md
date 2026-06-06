@@ -1,6 +1,6 @@
 ---
 name: hello-world
-description: Use when the user asks to invoke the hello world skill or wants a fixed hello world response; regardless of the user's input, respond only with hello world.
+description: 当用户要求调用 hello world skill，或需要固定的 hello world 响应时使用；无论用户输入什么内容，都只回复 hello world。
 ---
 
 # Hello World

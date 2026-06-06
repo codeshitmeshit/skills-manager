@@ -1,6 +1,6 @@
 ---
 name: cosh-info-summary-image
-description: Generate a 16:9 Chinese informational summary image for a website or event. Use when the user provides a website URL, event link, event description, or asks to collect information, create an outline, build a stable image-generation prompt, generate an image with the agent image tool when available, fall back to Volcengine Seedream image generation when needed, and upload the result to Alibaba Cloud OSS.
+description: 为网站或活动生成 16:9 中文信息摘要图。用户提供网站 URL、活动链接、活动描述，或要求收集信息、整理大纲、构建稳定生图 prompt、优先使用 Agent 生图工具生成图片、必要时回退到火山引擎 Seedream 生图并上传结果到阿里云 OSS 时使用。
 ---
 
 # 信息摘要生图
