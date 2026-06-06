@@ -1,0 +1,4 @@
+interface:
+  display_name: "信息摘要生图"
+  short_description: "收集网站或事件信息，生成中文摘要图并上传到 OSS"
+  default_prompt: "Use $cosh-info-summary-image to collect website or event information, create a Chinese outline, generate a stable 16:9 summary image, upload it to OSS, and return the summary plus object path."
