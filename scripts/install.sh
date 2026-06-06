@@ -24,21 +24,46 @@ if ! "${PYTHON_BIN}" -m pip --version >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[1/2] Installing Python package and dependencies..."
-"${PYTHON_BIN}" -m pip install -e "${PROJECT_ROOT}"
+WRAPPER_DIR="${HOME}/.local/bin"
+WRAPPER_PATH="${WRAPPER_DIR}/cosh-skills"
+
+echo "[1/2] Installing wrapper script..."
+mkdir -p "${WRAPPER_DIR}"
+cat > "${WRAPPER_PATH}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "${PROJECT_ROOT}"
+exec "${PYTHON_BIN}" -m internal.cli "\$@"
+EOF
+chmod +x "${WRAPPER_PATH}"
 
 echo
-echo "[2/2] Add an alias for your shell:"
+echo "[2/2] Installing Python package and dependencies..."
+if ! "${PYTHON_BIN}" -m pip install -e "${PROJECT_ROOT}"; then
+  echo
+  echo "Editable pip install failed, but the wrapper script was installed."
+  echo "The wrapper runs from the repository directory, so cosh-skills can still work without editable install."
+fi
+
 echo
-echo "zsh users can add this to ~/.zshrc:"
-echo "  alias cosh-skills='${PYTHON_BIN} -m internal.cli'"
+echo "Installed wrapper script:"
 echo
-echo "bash users can add this to ~/.bashrc:"
-echo "  alias cosh-skills='${PYTHON_BIN} -m internal.cli'"
+echo "  ${WRAPPER_PATH}"
 echo
-echo "Then reload your shell config, for example:"
-echo "  source ~/.zshrc"
-echo "  source ~/.bashrc"
+echo "Verify with:"
 echo
-echo "After that, verify with:"
 echo "  cosh-skills --help"
+echo
+echo "If your shell still reports an alias, remove the old alias from your shell config."
+echo
+echo "If your shell cannot find 'cosh-skills', make sure this directory is on PATH:"
+echo
+echo "  ${WRAPPER_DIR}"
+echo
+echo "For zsh, add this to ~/.zshrc:"
+echo
+echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+echo
+echo "Do not add an alias for cosh-skills."
+echo

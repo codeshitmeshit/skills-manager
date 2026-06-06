@@ -23,8 +23,8 @@
 - [x] 安装脚本不要求任何参数即可执行
 - [x] 安装脚本会安装项目所需 Python 依赖
 - [x] 安装脚本不会要求用户提供 `repo_path`、`cli`、`skills_path` 等业务参数
-- [x] 安装脚本输出 zsh alias 提示，指向当前项目的 CLI 入口
-- [x] 安装脚本输出 bash alias 提示，指向当前项目的 CLI 入口
+- [x] 安装脚本输出 `~/.local/bin/cosh-skills` wrapper 提示，指向当前项目的 CLI 入口
+- [x] 安装脚本输出 zsh `PATH` 配置提示，不再建议 alias
 - [x] 安装脚本不自动修改 `~/.zshrc` 或 `~/.bashrc`
 - [x] 安装脚本重复执行不会破坏已有环境
 
@@ -33,15 +33,13 @@
 - [x] 新增 `scripts/install.sh`
 - [x] 检查 Python 和 pip 是否可用
 - [x] 安装 Python 包和依赖，优先使用 `python -m pip install -e .`
-- [x] 输出可复制的 alias 示例：
-  - `alias cosh-skills='python -m internal.cli'`
-  - 或指向安装后的 `cosh-skills` 可执行入口
-- [x] 提示用户根据当前 shell 选择写入 `~/.zshrc` 或 `~/.bashrc`
+- [x] 写入 `~/.local/bin/cosh-skills` wrapper，先 `cd` 到项目目录再执行模块入口
+- [x] 提示用户将 `export PATH="$HOME/.local/bin:$PATH"` 写入 `~/.zshrc`
 - [x] 保持脚本无业务参数，业务配置仍通过 `cosh-skills config set ...` 或 `cosh-skills update ...` 完成
 
 交付标准：
 
-- [x] 用户执行一次安装脚本后，可以按提示配置 alias
+- [x] 用户执行一次安装脚本后，可以按提示配置 `PATH`
 - [x] 重新打开 shell 或 source rc 文件后，`cosh-skills --help` 可以运行
 
 ## 阶段 2：配置模块
@@ -194,7 +192,7 @@
 - [x] 全量测试通过
 - [x] 补充 README 基本使用方式
 - [x] 补充一键安装脚本使用方式
-- [x] 补充 zsh/bash alias 配置示例
+- [x] 补充本地 shell `PATH` 配置示例
 - [x] 补充本地开发和测试命令
 - [x] 用临时 repo 做一次端到端手动验收
 - [x] 检查第一版明确不做的能力没有被误实现

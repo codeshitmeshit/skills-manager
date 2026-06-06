@@ -43,6 +43,10 @@ class InstallScriptTest(unittest.TestCase):
             )
             result.python_log = log_path.read_text(encoding="utf-8")
             result.home_path = pathlib.Path(env["HOME"])
+            wrapper_path = result.home_path / ".local" / "bin" / "cosh-skills"
+            result.wrapper_path = wrapper_path
+            result.wrapper_content = wrapper_path.read_text(encoding="utf-8")
+            result.wrapper_executable = os.access(wrapper_path, os.X_OK)
             return result
 
     def test_install_script_exists(self) -> None:
@@ -67,13 +71,24 @@ class InstallScriptTest(unittest.TestCase):
         self.assertNotIn("skills_path", output)
         self.assertNotIn("--cli", output)
 
-    def test_install_script_prints_zsh_and_bash_alias_guidance(self) -> None:
+    def test_install_script_prints_console_script_guidance(self) -> None:
         result = self.run_install_script()
 
-        self.assertIn("~/.zshrc", result.stdout)
-        self.assertIn("~/.bashrc", result.stdout)
-        self.assertIn("alias cosh-skills=", result.stdout)
-        self.assertIn("python3 -m internal.cli", result.stdout)
+        self.assertIn(str(result.home_path / ".local" / "bin" / "cosh-skills"), result.stdout)
+        self.assertIn("cosh-skills --help", result.stdout)
+        self.assertIn("remove the old alias", result.stdout)
+        self.assertIn(".local/bin", result.stdout)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', result.stdout)
+        self.assertIn("Do not add an alias", result.stdout)
+        self.assertNotIn("alias cosh-skills=", result.stdout)
+
+    def test_install_script_writes_directory_independent_wrapper(self) -> None:
+        result = self.run_install_script()
+
+        self.assertEqual(result.wrapper_path, result.home_path / ".local" / "bin" / "cosh-skills")
+        self.assertTrue(result.wrapper_executable)
+        self.assertIn(f'cd "{ROOT}"', result.wrapper_content)
+        self.assertIn('exec "python3" -m internal.cli "$@"', result.wrapper_content)
 
     def test_install_script_does_not_modify_shell_rc_files(self) -> None:
         result = self.run_install_script()

@@ -8,6 +8,7 @@ English: [README.md](README.md)
 
 - `codex`
 - `claude`
+- `qwen`
 
 工具要求你先自行 clone skill 仓库。它会更新这个本地 git 仓库，并从下面的位置扫描有效 skill：
 
@@ -25,32 +26,36 @@ English: [README.md](README.md)
 scripts/install.sh
 ```
 
-该脚本会以 editable 模式安装 Python 包和依赖。它不会询问 `repo_path`、`cli`、`skills_path` 等业务参数。
+该脚本会以 editable 模式安装 Python 包和依赖，然后写入包装脚本 `~/.local/bin/cosh-skills`。这个包装脚本会先切换到当前仓库目录，再执行 Python 模块入口，所以可以从任意目录运行。安装脚本不会询问 `repo_path`、`cli`、`skills_path` 等业务参数。
 
-安装后，为你的 shell 添加 alias。
+不要把 `cosh-skills` alias 到 `python3 -m internal.cli`；这个模块命令只有在仓库位于 `PYTHONPATH` 中时才可用。如果 shell 仍然显示 alias，请从 `~/.zshrc` 或 `~/.bashrc` 删除它。如果 shell 找不到 `cosh-skills`，请确认 `~/.local/bin` 在 `PATH` 中。
 
-如果使用 zsh，将下面内容加入 `~/.zshrc`：
+### 本地 shell 配置
+
+如果使用 zsh，在 `~/.zshrc` 中保留下面这行：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+不要添加 `cosh-skills` alias。如果之前已经添加过下面这行，请删除：
 
 ```bash
 alias cosh-skills='python3 -m internal.cli'
 ```
 
-如果使用 bash，将下面内容加入 `~/.bashrc`：
-
-```bash
-alias cosh-skills='python3 -m internal.cli'
-```
-
-重新加载 shell 配置：
+重新加载配置并确认命令来源：
 
 ```bash
 source ~/.zshrc
+unalias cosh-skills 2>/dev/null || true
+which cosh-skills
 ```
 
-或：
+期望输出：
 
-```bash
-source ~/.bashrc
+```text
+/home/wo/.local/bin/cosh-skills
 ```
 
 验证安装：
@@ -75,6 +80,12 @@ cosh-skills init --cli codex --force
 
 Codex 对新增或变更的非托管 hook 需要信任后才会执行。运行 `cosh-skills init --cli codex` 后，在 Codex 里用 `/hooks` 审查并信任该 hook。
 
+初始化 Qwen 启动 hook：
+
+```bash
+cosh-skills init --cli qwen
+```
+
 ## 基本使用
 
 设置本地 skill 仓库路径：
@@ -88,6 +99,7 @@ cosh-skills config set repo_path /path/to/cosh-skills
 ```bash
 cosh-skills config set cli.codex.skills_path ~/.codex/skills
 cosh-skills config set cli.claude.skills_path ~/.claude/skills
+cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
 ```
 
 可选设置安装模式。第一版支持 `auto` 和 `copy`；`cli` 和 `link` 可以写入配置，但 `update` 暂未实现这两种模式。
@@ -95,6 +107,7 @@ cosh-skills config set cli.claude.skills_path ~/.claude/skills
 ```bash
 cosh-skills config set cli.codex.install_mode copy
 cosh-skills config set cli.claude.install_mode auto
+cosh-skills config set cli.qwen.install_mode auto
 ```
 
 查看配置：
@@ -108,6 +121,7 @@ cosh-skills config get
 ```bash
 cosh-skills update --cli codex
 cosh-skills update --cli claude
+cosh-skills update --cli qwen
 ```
 
 第一次使用时，也可以在 `update` 命令中直接传入 `repo_path`：
@@ -168,7 +182,7 @@ python3 -m unittest discover -s tests
 开发时直接运行 CLI：
 
 ```bash
-python3 -m internal.cli --help
+PYTHONPATH=/path/to/cosh-skills python3 -m internal.cli --help
 ```
 
 检查安装脚本语法：
