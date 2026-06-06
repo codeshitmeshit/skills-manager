@@ -6,20 +6,48 @@ from __future__ import annotations
 import argparse
 import mimetypes
 import os
+import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
+
+
+def load_local_env() -> None:
+    candidates = [Path.cwd() / ".env", Path(__file__).resolve().parents[3] / ".env"]
+    for env_file in candidates:
+        if not env_file.is_file():
+            continue
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.removeprefix("export ").strip()
+            value = value.strip().strip("'\"")
+            os.environ.setdefault(key, value)
+        return
+
+
+load_local_env()
 
 
 REQUIRED_ENV = (
-    "ALIBABA_CLOUD_ACCESS_KEY_ID",
-    "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
-    "OSS_REGION",
+    "OSS_ENDPOINT",
     "OSS_BUCKET",
 )
 
 
 def require_env() -> None:
     missing = [name for name in REQUIRED_ENV if not os.getenv(name)]
+    has_access_key = (
+        os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")
+        and os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")
+    ) or (os.getenv("OSS_ACCESS_KEY_ID") and os.getenv("OSS_ACCESS_KEY_SECRET"))
+    if not has_access_key:
+        missing.append(
+            "ALIBABA_CLOUD_ACCESS_KEY_ID/ALIBABA_CLOUD_ACCESS_KEY_SECRET "
+            "or OSS_ACCESS_KEY_ID/OSS_ACCESS_KEY_SECRET"
+        )
     if missing:
         raise SystemExit(
             "Missing required environment variables: " + ", ".join(missing)
@@ -44,9 +72,9 @@ def parse_args() -> argparse.Namespace:
         help="OSS bucket name. Defaults to OSS_BUCKET.",
     )
     parser.add_argument(
-        "--region",
-        default=os.getenv("OSS_REGION"),
-        help="OSS region, for example cn-hangzhou. Defaults to OSS_REGION.",
+        "--endpoint",
+        default=os.getenv("OSS_ENDPOINT"),
+        help="OSS endpoint, for example https://oss-cn-hangzhou.aliyuncs.com. Defaults to OSS_ENDPOINT.",
     )
     parser.add_argument(
         "--forbid-overwrite",
@@ -63,9 +91,38 @@ def build_object_key(args: argparse.Namespace, local_file: Path) -> str:
     return f"{prefix}/{local_file.name}" if prefix else local_file.name
 
 
+def infer_region_from_endpoint(endpoint: str | None) -> str | None:
+    if not endpoint:
+        return None
+    parsed = urlparse(endpoint if "://" in endpoint else f"//{endpoint}")
+    host = (parsed.hostname or "").lower()
+    match = re.search(r"(?:^|\.)oss-([a-z0-9-]+?)(?:-internal)?\.aliyuncs\.com$", host)
+    if not match:
+        return None
+    region = match.group(1)
+    return None if region.startswith("accelerate") else region
+
+
+def access_key_pair() -> tuple[str, str]:
+    access_key_id = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID") or os.getenv("OSS_ACCESS_KEY_ID")
+    access_key_secret = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET") or os.getenv(
+        "OSS_ACCESS_KEY_SECRET"
+    )
+    if not access_key_id or not access_key_secret:
+        raise SystemExit("Missing OSS access key credentials.")
+    return access_key_id, access_key_secret
+
+
 def main() -> int:
-    require_env()
     args = parse_args()
+    require_env()
+    region = infer_region_from_endpoint(args.endpoint)
+    if not region:
+        raise SystemExit(
+            "Cannot infer OSS region from OSS_ENDPOINT. Use a standard OSS endpoint "
+            "such as https://oss-cn-hangzhou.aliyuncs.com."
+        )
+
     local_file = Path(args.file)
     if not local_file.is_file():
         raise SystemExit(f"Local file does not exist: {local_file}")
@@ -80,10 +137,16 @@ def main() -> int:
     object_key = build_object_key(args, local_file)
     content_type = mimetypes.guess_type(local_file.name)[0] or "application/octet-stream"
 
-    credentials_provider = oss.credentials.EnvironmentVariableCredentialsProvider()
+    access_key_id, access_key_secret = access_key_pair()
+    credentials_provider = oss.credentials.StaticCredentialsProvider(
+        access_key_id,
+        access_key_secret,
+        os.getenv("OSS_SESSION_TOKEN"),
+    )
     cfg = oss.config.load_default()
     cfg.credentials_provider = credentials_provider
-    cfg.region = args.region
+    cfg.region = region
+    cfg.endpoint = args.endpoint
     client = oss.Client(cfg)
 
     result = client.put_object_from_file(

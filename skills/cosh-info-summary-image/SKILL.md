@@ -35,7 +35,7 @@ description: Generate a 16:9 Chinese informational summary image for a website o
 生成与上传至少需要：
 
 - Agent 生图能力可用，或火山引擎生图所需 key、模型、调用配置完整。
-- OSS 上传所需 key、bucket、region、object path 或 path prefix 完整。
+- OSS 上传所需 access key、bucket、endpoint、object path 或 path prefix 完整。当前脚本接受 `ALIBABA_CLOUD_ACCESS_KEY_ID`/`ALIBABA_CLOUD_ACCESS_KEY_SECRET`，也兼容 `OSS_ACCESS_KEY_ID`/`OSS_ACCESS_KEY_SECRET`；只接受 `OSS_ENDPOINT`，并从标准 OSS endpoint 内部推导 SDK 所需 region；加速 endpoint、自定义域名或 CDN 域名无法稳定推导 region，因此不可作为上传配置。
 
 缺失时按以下格式停止：
 
@@ -125,8 +125,25 @@ Requirements:
 
 ## 脚本资源
 
-- `scripts/volcengine_generate_image.py`：当 Agent 没有可用生图能力时，调用火山引擎兼容 OpenAI 风格的图片生成接口。运行前必须确认所需环境变量已配置；缺失时停止询问用户。
-- `scripts/upload_oss.py`：使用 Alibaba Cloud OSS Python SDK V2 上传本地图片并输出 OSS 对象路径。运行前必须确认 OSS 环境变量已配置；缺失时停止询问用户。
+- `scripts/volcengine_generate_image.py`：当 Agent 没有可用生图能力时，调用火山引擎兼容 OpenAI 风格的图片生成接口。运行前必须确认所需环境变量已配置；缺失时停止询问用户。`VOLCENGINE_IMAGE_SIZE` 不要填 `16:9` 这类比例字符串；Seedream 5 接受 `WIDTHxHEIGHT`、`2k`、`3k` 或 `4k`，16:9 推荐填 `2560x1440`。
+- `scripts/upload_oss.py`：使用 Alibaba Cloud OSS Python SDK V2 上传本地图片并输出 OSS 对象路径。运行前必须确认 OSS 环境变量已配置；脚本只接受 `OSS_ENDPOINT`，并从标准 OSS endpoint 内部推导 SDK 所需 region；缺失必需项或 endpoint 无法推导 region 时停止询问用户。
+
+## 配置指引
+
+火山引擎 fallback：
+
+- 必填：`VOLCENGINE_API_KEY`
+- 必填：`VOLCENGINE_IMAGE_MODEL`
+- 可选：`VOLCENGINE_BASE_URL`，默认 `https://ark.cn-beijing.volces.com/api/v3/`
+- 可选：`VOLCENGINE_IMAGE_SIZE`，默认建议 `2560x1440`；不要使用 `16:9`，该值会被 Seedream 5 拒绝。
+- 可选：`VOLCENGINE_TIMEOUT`，默认 `180`
+
+OSS 上传：
+
+- 必填：`ALIBABA_CLOUD_ACCESS_KEY_ID` 和 `ALIBABA_CLOUD_ACCESS_KEY_SECRET`，或 `OSS_ACCESS_KEY_ID` 和 `OSS_ACCESS_KEY_SECRET`
+- 必填：`OSS_BUCKET`
+- 必填：`OSS_ENDPOINT`，必须是标准 OSS endpoint，例如 `oss-cn-guangzhou.aliyuncs.com`
+- 可选：`OSS_PREFIX`，未传 `--key` 时作为对象路径前缀，默认 `generated-images`
 
 ## 输出格式
 
@@ -163,5 +180,5 @@ Requirements:
 - 生图 prompt 使用稳定模板，默认 16:9，默认中文可见文字。
 - 没有虚构事实、数字、人物、品牌、日期或截图。
 - 若使用 fallback，已检查火山引擎所需 key 和模型配置。
-- 上传前已检查 OSS key、bucket、region 和对象路径。
+- 上传前已检查 OSS key、bucket、endpoint 和对象路径，且 endpoint 可推导 SDK 所需 region。
 - 最终只返回摘要与图片路径，除非用户要求更多过程信息。

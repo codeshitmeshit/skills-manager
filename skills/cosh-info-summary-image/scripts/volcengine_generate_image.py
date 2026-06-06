@@ -14,6 +14,25 @@ from urllib.parse import urljoin
 import requests
 
 
+def load_local_env() -> None:
+    candidates = [Path.cwd() / ".env", Path(__file__).resolve().parents[3] / ".env"]
+    for env_file in candidates:
+        if not env_file.is_file():
+            continue
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.removeprefix("export ").strip()
+            value = value.strip().strip("'\"")
+            os.environ.setdefault(key, value)
+        return
+
+
+load_local_env()
+
+
 REQUIRED_ENV = ("VOLCENGINE_API_KEY", "VOLCENGINE_IMAGE_MODEL")
 
 
@@ -45,8 +64,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--size",
-        default=os.getenv("VOLCENGINE_IMAGE_SIZE", "16:9"),
-        help="Requested image size or aspect ratio.",
+        default=os.getenv("VOLCENGINE_IMAGE_SIZE", "2560x1440"),
+        help="Requested image size, such as 2560x1440, 2k, 3k, or 4k.",
     )
     parser.add_argument(
         "--timeout",
