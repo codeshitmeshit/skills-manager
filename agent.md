@@ -6,6 +6,7 @@
 
 - 默认在 `skills/cosh-<skill-name>/` 下创建 skill，目录名必须和 frontmatter 的 `name` 完全一致。
 - 新建 skill 名称必须以 `cosh-` 开头，例如 `cosh-tutorial-html-docs`。
+- Virtual Office 基础设施专用 skill 可以使用 `vo-` 前缀；该例外仅用于明确服务 Virtual Office 通信、路由或运行时协作的 skill。
 - skill 名称只使用小写字母、数字和短横线。
 - 只写 Codex 执行任务所需的知识，不写 README、安装说明、变更日志或过程复盘。
 - `SKILL.md` 保持精简，复杂细节放入 `references/`，可复用文件放入 `assets/`，确定性操作放入 `scripts/`。
@@ -31,12 +32,13 @@ skills/
 
 `SKILL.md` 必须包含 YAML frontmatter 和正文。
 
-frontmatter 只放两个字段：
+frontmatter 默认只放两个字段；仅当 skill 只适用于部分 CLI 时，额外添加仓库支持的 `cli_scope`：
 
 ```yaml
 ---
 name: cosh-<skill-name>
 description: <用中文说明 skill 能做什么以及何时使用>
+# 可选：cli_scope: [openclaw, hermes]
 ---
 ```
 
@@ -111,8 +113,8 @@ interface:
 交付前确认：
 
 - `skills/cosh-<skill-name>/SKILL.md` 存在。
-- frontmatter 只有 `name` 和 `description`，且 `name` 等于目录名。
-- `name` 和目录名都以 `cosh-` 开头。
+- frontmatter 包含 `name` 和 `description`，且 `name` 等于目录名；仅按需额外包含合法的 `cli_scope`。
+- `name` 和目录名都以 `cosh-` 开头；明确属于 Virtual Office 基础设施的 skill 可以改用 `vo-` 前缀。
 - `description` 足以让 Codex 判断触发时机。
 - `SKILL.md` 没有塞入可外置的大段模板、脚本或参考资料。
 - 所有从 `SKILL.md` 提到的资源路径都真实存在。
