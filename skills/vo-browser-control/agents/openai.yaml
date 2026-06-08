@@ -1,0 +1,4 @@
+interface:
+  display_name: "Virtual Office 浏览器控制"
+  short_description: "通过 VO 共享 Kasm 浏览器安全访问和操作网页"
+  default_prompt: "Use $vo-browser-control to access or operate a website through the Virtual Office shared Kasm browser."
