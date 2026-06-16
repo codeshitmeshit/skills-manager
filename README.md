@@ -11,6 +11,7 @@ First-version supported targets:
 - `qwen`
 - `openclaw`
 - `hermes`
+- `cursor`
 
 The tool expects you to clone the skill repository yourself. It updates that local git repository and syncs valid skills from:
 
@@ -104,6 +105,7 @@ cosh-skills config set cli.claude.skills_path ~/.claude/skills
 cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
 cosh-skills config set cli.openclaw.skills_path ~/.openclaw/skills
 cosh-skills config set cli.hermes.skills_path ~/.hermes/skills
+cosh-skills config set cli.cursor.skills_path ~/.cursor/skills
 ```
 
 Optionally set install mode. First version supports `auto` and `copy`; `cli` and `link` are accepted in config but not implemented for update.
@@ -114,6 +116,7 @@ cosh-skills config set cli.claude.install_mode auto
 cosh-skills config set cli.qwen.install_mode auto
 cosh-skills config set cli.openclaw.install_mode auto
 cosh-skills config set cli.hermes.install_mode auto
+cosh-skills config set cli.cursor.install_mode auto
 ```
 
 Show config:
@@ -130,6 +133,7 @@ cosh-skills update --cli claude
 cosh-skills update --cli qwen
 cosh-skills update --cli openclaw
 cosh-skills update --cli hermes
+cosh-skills update --cli cursor
 ```
 
 First use can also provide `repo_path` inline:
@@ -186,7 +190,7 @@ When updating another CLI, scoped skills that do not include the current target 
 已跳过 1 个不适用于 codex 的 skill。
 ```
 
-The skipped skills are not installed, verified, or counted as synced skills for that CLI. `cosh-skills check` validates `cli_scope`; the current supported values are `codex`, `claude`, `qwen`, `openclaw`, and `hermes`.
+The skipped skills are not installed, verified, or counted as synced skills for that CLI. `cosh-skills check` validates `cli_scope`; the current supported values are `codex`, `claude`, `qwen`, `openclaw`, `hermes`, and `cursor`.
 
 ## First-Version Limits
 

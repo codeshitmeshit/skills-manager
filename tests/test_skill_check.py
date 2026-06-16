@@ -39,7 +39,7 @@ class SkillCheckTest(unittest.TestCase):
                 "name: git-helper\n"
                 "description: Help with git workflows.\n"
                 "cli_scope:\n"
-                "  - openclaw\n"
+                "  - cursor\n"
                 "  - hermes\n"
                 "---\n\n"
                 "# Git Helper\n",

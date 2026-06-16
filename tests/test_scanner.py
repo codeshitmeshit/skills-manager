@@ -79,7 +79,7 @@ class ScannerTest(unittest.TestCase):
                 "description: Help with docs.\n"
                 "cli_scope:\n"
                 "  - codex\n"
-                "  - qwen\n"
+                "  - cursor\n"
                 "---\n\n"
                 "# Docs Helper\n",
                 encoding="utf-8",
@@ -87,7 +87,7 @@ class ScannerTest(unittest.TestCase):
 
             result = scan_skills(repo)
 
-        self.assertEqual(result.skills[0].cli_scope, ("codex", "qwen"))
+        self.assertEqual(result.skills[0].cli_scope, ("codex", "cursor"))
 
     def test_invalid_cli_scope_fails_scan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

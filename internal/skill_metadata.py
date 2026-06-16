@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-SUPPORTED_CLIS = ("codex", "claude", "qwen", "openclaw", "hermes")
+SUPPORTED_CLIS = ("codex", "claude", "qwen", "openclaw", "hermes", "cursor")
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], list[str]]:

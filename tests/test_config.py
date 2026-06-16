@@ -61,6 +61,7 @@ class ConfigTest(unittest.TestCase):
             self.assertIn("qwen", config["cli"])
             self.assertIn("openclaw", config["cli"])
             self.assertIn("hermes", config["cli"])
+            self.assertIn("cursor", config["cli"])
             self.assertEqual(config["cli"]["codex"]["install_mode"], "auto")
             self.assertEqual(config["cli"]["codex"]["managed_skills"], [])
 
@@ -88,12 +89,14 @@ class ConfigTest(unittest.TestCase):
         set_config_value(config, "cli.qwen.skills_path", "~/.qwen/skills")
         set_config_value(config, "cli.openclaw.skills_path", "~/.openclaw/skills")
         set_config_value(config, "cli.hermes.skills_path", "~/.hermes/skills")
+        set_config_value(config, "cli.cursor.skills_path", "~/.cursor/skills")
 
         self.assertEqual(config["cli"]["codex"]["skills_path"], "~/.codex/skills")
         self.assertEqual(config["cli"]["claude"]["skills_path"], "~/.claude/skills")
         self.assertEqual(config["cli"]["qwen"]["skills_path"], "~/.qwen/skills")
         self.assertEqual(config["cli"]["openclaw"]["skills_path"], "~/.openclaw/skills")
         self.assertEqual(config["cli"]["hermes"]["skills_path"], "~/.hermes/skills")
+        self.assertEqual(config["cli"]["cursor"]["skills_path"], "~/.cursor/skills")
 
     def test_set_valid_install_modes(self) -> None:
         for mode in VALID_INSTALL_MODES:
@@ -116,9 +119,11 @@ class ConfigTest(unittest.TestCase):
 
         set_config_value(config, "cli.openclaw.install_mode", "copy")
         set_config_value(config, "cli.hermes.install_mode", "copy")
+        set_config_value(config, "cli.cursor.install_mode", "copy")
 
         self.assertEqual(config["cli"]["openclaw"]["install_mode"], "copy")
         self.assertEqual(config["cli"]["hermes"]["install_mode"], "copy")
+        self.assertEqual(config["cli"]["cursor"]["install_mode"], "copy")
 
     def test_rejects_unknown_config_key_with_allowed_keys(self) -> None:
         config = load_config(home=pathlib.Path("/tmp/does-not-need-to-exist"))

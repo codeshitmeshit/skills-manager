@@ -11,6 +11,7 @@ English: [README.md](README.md)
 - `qwen`
 - `openclaw`
 - `hermes`
+- `cursor`
 
 工具要求你先自行 clone skill 仓库。它会更新这个本地 git 仓库，并从下面的位置扫描有效 skill：
 
@@ -104,6 +105,7 @@ cosh-skills config set cli.claude.skills_path ~/.claude/skills
 cosh-skills config set cli.qwen.skills_path ~/.qwen/skills
 cosh-skills config set cli.openclaw.skills_path ~/.openclaw/skills
 cosh-skills config set cli.hermes.skills_path ~/.hermes/skills
+cosh-skills config set cli.cursor.skills_path ~/.cursor/skills
 ```
 
 可选设置安装模式。第一版支持 `auto` 和 `copy`；`cli` 和 `link` 可以写入配置，但 `update` 暂未实现这两种模式。
@@ -114,6 +116,7 @@ cosh-skills config set cli.claude.install_mode auto
 cosh-skills config set cli.qwen.install_mode auto
 cosh-skills config set cli.openclaw.install_mode auto
 cosh-skills config set cli.hermes.install_mode auto
+cosh-skills config set cli.cursor.install_mode auto
 ```
 
 查看配置：
@@ -130,6 +133,7 @@ cosh-skills update --cli claude
 cosh-skills update --cli qwen
 cosh-skills update --cli openclaw
 cosh-skills update --cli hermes
+cosh-skills update --cli cursor
 ```
 
 第一次使用时，也可以在 `update` 命令中直接传入 `repo_path`：
@@ -186,7 +190,7 @@ cli_scope:
 已跳过 1 个不适用于 codex 的 skill。
 ```
 
-被跳过的 skill 不会安装、校验，也不会计入该 CLI 的同步数量。`cosh-skills check` 会校验 `cli_scope`；当前支持的值是 `codex`、`claude`、`qwen`、`openclaw` 和 `hermes`。
+被跳过的 skill 不会安装、校验，也不会计入该 CLI 的同步数量。`cosh-skills check` 会校验 `cli_scope`；当前支持的值是 `codex`、`claude`、`qwen`、`openclaw`、`hermes` 和 `cursor`。
 
 ## 第一版限制
 

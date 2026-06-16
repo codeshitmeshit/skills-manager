@@ -65,6 +65,13 @@ class CliCommandTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("未配置 skill 仓库路径", result.stderr)
 
+    def test_update_cli_cursor_parses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.run_cli("update", "--cli", "cursor", home=pathlib.Path(tmpdir))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未配置 skill 仓库路径", result.stderr)
+
     def test_update_rejects_unsupported_cli(self) -> None:
         result = self.run_cli("update", "--cli", "all")
 
@@ -75,6 +82,7 @@ class CliCommandTest(unittest.TestCase):
         self.assertIn("qwen", result.stderr)
         self.assertIn("openclaw", result.stderr)
         self.assertIn("hermes", result.stderr)
+        self.assertIn("cursor", result.stderr)
 
     def test_update_requires_cli(self) -> None:
         result = self.run_cli("update")
@@ -151,6 +159,7 @@ class CliCommandTest(unittest.TestCase):
         self.assertIn("claude", result.stderr)
         self.assertIn("openclaw", result.stderr)
         self.assertIn("hermes", result.stderr)
+        self.assertIn("cursor", result.stderr)
 
     def test_update_rejects_first_version_unsupported_parameters(self) -> None:
         for arg in ("--branch", "--skill", "--install-mode", "--skills-path"):
