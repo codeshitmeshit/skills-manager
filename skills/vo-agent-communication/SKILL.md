@@ -11,6 +11,8 @@ description: 任意 CLI 或 agent 需要通过 Virtual Office 联系 OpenClaw、
 
 目标为 `codex-local` 或 `providerKind=codex` 时，不使用本技能，改用 `$vo-codex-communication`。
 
+如果任务是在判断是否处于 VO、选择哪个 VO skill、或决定普通沟通是否应升级为正式 AI 会议，先使用 `$vo-operating-guidelines`。本技能只处理已确定要进行的普通非 Codex agent 通信。
+
 ## 核心规则
 
 与办公室 Agent 通信时，必须调用：
@@ -171,6 +173,7 @@ curl -sS \
 - 高频并发对话。
 - 无限自主 Agent 循环。
 - 长期项目编排。
+- 正式 AI 会议申请、多方同步决策或需要用户确认会议上下文的场景；这类场景先使用 `$vo-operating-guidelines`。
 - 绕过人工授权的操作。
 - 传输凭据或敏感配置。
 

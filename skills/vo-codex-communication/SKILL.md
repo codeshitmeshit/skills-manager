@@ -11,6 +11,8 @@ description: 任意 CLI 或 agent 需要联系 Virtual Office 中 providerKind=c
 
 最关键的路由规则：目标属于 `providerKind=codex` 时，必须走 Virtual Office API；只有目标属于 OpenClaw 原生 agent 时，才考虑 `sessions_send`。
 
+如果任务是在判断是否处于 VO、选择哪个 VO skill、或决定普通 Codex 沟通是否应升级为正式 AI 会议，先使用 `$vo-operating-guidelines`。本技能只处理已确定要联系 `providerKind=codex` 目标的普通通信。
+
 ## 核心约束
 
 - 不要对 `codex-local` 调用 `sessions_send`。
@@ -18,6 +20,7 @@ description: 任意 CLI 或 agent 需要联系 Virtual Office 中 providerKind=c
 - 不要绕过 Virtual Office 启动私人 Codex CLI 会话。
 - Virtual Office 或 `codex-local` 不可用时，报告错误并停止；不要自动切换其他 Codex 通道。
 - 每次默认发送边界清晰的任务。复杂任务可以发送，但应提示其更容易超时，不要仅因任务较复杂而拒绝发送。
+- 不要用本技能提交或确认 AI 会议；正式会议申请、多方同步决策或用户确认会议上下文的场景先回到 `$vo-operating-guidelines`。
 - 不要要求 Codex 返回密钥、认证信息或越过工作区权限。
 
 ## 通信工作流
