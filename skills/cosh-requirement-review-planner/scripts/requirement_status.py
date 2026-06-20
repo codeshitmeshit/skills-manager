@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List archived requirement progress under .cosh-docs/requirment."""
+"""List requirement progress under .cosh-docs/requirment."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="以 JSON 格式输出。")
     args = parser.parse_args()
 
-    archive_root = Path(args.root).resolve() / ".cosh-docs" / "requirment"
-    records = scan_requirements(archive_root)
+    requirement_root = Path(args.root).resolve() / ".cosh-docs" / "requirment"
+    records = scan_requirements(requirement_root, include_archive=args.all)
     if not args.all:
         records = [item for item in records if item["stage"] not in {"done", "cancelled"}]
 
@@ -42,38 +42,47 @@ def main() -> int:
         print(json.dumps(records, ensure_ascii=False, indent=2))
         return 0
 
-    if not archive_root.exists():
-        print(f"未找到需求归档目录：{archive_root}")
+    if not requirement_root.exists():
+        print(f"未找到需求归档目录：{requirement_root}")
         return 0
 
     if not records:
-        print(f"暂无进行中需求：{archive_root}")
+        print(f"暂无进行中需求：{requirement_root}")
         return 0
 
     name_width = max(len("需求"), *(display_width(item["name"]) for item in records))
     stage_width = max(len("阶段"), *(display_width(stage_text(item)) for item in records))
-    print(f"{pad('需求', name_width)}  {pad('阶段', stage_width)}  更新时间  路径")
-    print(f"{'-' * name_width}  {'-' * stage_width}  --------  ----")
+    location_width = max(len("位置"), *(display_width(item["location"]) for item in records))
+    print(f"{pad('需求', name_width)}  {pad('阶段', stage_width)}  {pad('位置', location_width)}  更新时间  路径")
+    print(f"{'-' * name_width}  {'-' * stage_width}  {'-' * location_width}  --------  ----")
     for item in records:
         print(
             f"{pad(item['name'], name_width)}  "
             f"{pad(stage_text(item), stage_width)}  "
+            f"{pad(item['location'], location_width)}  "
             f"{item['updated_at'] or '-'}  "
             f"{item['path']}"
         )
     return 0
 
 
-def scan_requirements(archive_root: Path) -> list[dict[str, Any]]:
-    if not archive_root.is_dir():
+def scan_requirements(requirement_root: Path, *, include_archive: bool) -> list[dict[str, Any]]:
+    if not requirement_root.is_dir():
         return []
     records = []
-    for requirement_dir in sorted(item for item in archive_root.iterdir() if item.is_dir()):
-        records.append(read_record(requirement_dir))
+    for requirement_dir in sorted(item for item in requirement_root.iterdir() if item.is_dir()):
+        if requirement_dir.name == "archive":
+            continue
+        records.append(read_record(requirement_dir, location="active"))
+
+    archive_root = requirement_root / "archive"
+    if include_archive and archive_root.is_dir():
+        for requirement_dir in sorted(item for item in archive_root.iterdir() if item.is_dir()):
+            records.append(read_record(requirement_dir, location="archive"))
     return records
 
 
-def read_record(requirement_dir: Path) -> dict[str, Any]:
+def read_record(requirement_dir: Path, *, location: str) -> dict[str, Any]:
     status_path = requirement_dir / "status.json"
     if status_path.is_file():
         try:
@@ -88,6 +97,7 @@ def read_record(requirement_dir: Path) -> dict[str, Any]:
                 "confirmed": status.get("confirmed", {}),
                 "confirmations": status.get("confirmations", {}),
                 "path": str(requirement_dir),
+                "location": location,
                 "inferred": False,
             }
         except (OSError, json.JSONDecodeError):
@@ -103,6 +113,7 @@ def read_record(requirement_dir: Path) -> dict[str, Any]:
         "confirmed": {},
         "confirmations": {},
         "path": str(requirement_dir),
+        "location": location,
         "inferred": True,
     }
 
