@@ -1,0 +1,120 @@
+{
+  "profile": "standard",
+  "source_bias": "mixed",
+  "style": "editorial",
+  "interests": {
+    "max_generated_queries": 8,
+    "topics": [
+      "AI agents",
+      "coding agents",
+      "developer tools",
+      "open source AI",
+      "LLM infrastructure"
+    ],
+    "keywords": [
+      "Codex",
+      "Claude Code",
+      "MCP",
+      "RAG",
+      "context engineering",
+      "workflow automation"
+    ],
+    "companies": [
+      "OpenAI",
+      "Anthropic",
+      "Google DeepMind",
+      "Meta AI",
+      "Mistral",
+      "阿里",
+      "字节",
+      "腾讯",
+      "百度",
+      "智谱",
+      "月之暗面",
+      "DeepSeek"
+    ],
+    "models_or_projects": [
+      "GPT",
+      "Claude",
+      "Gemini",
+      "Llama",
+      "Mistral",
+      "Qwen",
+      "Kimi",
+      "DeepSeek",
+      "GLM"
+    ],
+    "preferred_domains": [
+      "openai.com",
+      "anthropic.com",
+      "deepmind.google",
+      "ai.meta.com",
+      "mistral.ai",
+      "github.com",
+      "huggingface.co",
+      "arxiv.org",
+      "semianalysis.com",
+      "simonwillison.net",
+      "the-decoder.com",
+      "36kr.com",
+      "jiqizhixin.com",
+      "qbitai.com"
+    ],
+    "exclude_keywords": [
+      "SEO",
+      "代发",
+      "博彩",
+      "币圈喊单",
+      "价格预测",
+      "空投",
+      "网赚",
+      "课程促销"
+    ],
+    "exclude_domains": [
+      "instagram.com",
+      "facebook.com",
+      "pinterest.com",
+      "medium.com",
+      "cointelegraph.com"
+    ]
+  },
+  "search_cosh": {
+    "enabled": true,
+    "base_url": "https://search.cosh.fun",
+    "category": "general",
+    "time_range": "day",
+    "language": "auto",
+    "limit_per_query": 3
+  },
+  "sections": {
+    "ai_products": {
+      "enabled": true,
+      "limit": 6
+    },
+    "github_trending": {
+      "enabled": true,
+      "limit": 5
+    },
+    "important_news": {
+      "enabled": true,
+      "limit": 8
+    },
+    "daily_observations": {
+      "enabled": true,
+      "limit": 3
+    }
+  },
+  "news_queries": [
+    "AI OR OpenAI OR Anthropic OR Google DeepMind when:1d",
+    "developer tools OR GitHub OR programming OR open source when:1d",
+    "LLM model release OR AI agent OR coding agent when:1d",
+    "阿里 AI OR 字节 AI OR 腾讯 AI OR 百度 AI OR 智谱 AI OR 月之暗面 when:1d"
+  ],
+  "fallback_search_queries": [
+    "today AI model release developer tools",
+    "GitHub trending AI developer tools today",
+    "OpenAI Anthropic Google DeepMind developer news today",
+    "AI coding agent open source release today",
+    "阿里 字节 腾讯 百度 智谱 月之暗面 AI 今日"
+  ]
+}

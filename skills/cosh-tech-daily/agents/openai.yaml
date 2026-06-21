@@ -1,0 +1,4 @@
+interface:
+  display_name: "技术日报"
+  short_description: "生成 AI 与开发者技术日报，支持预抓取和 Markdown 分发"
+  default_prompt: "Use $cosh-tech-daily to generate today’s AI and developer technology daily briefing in Markdown."
