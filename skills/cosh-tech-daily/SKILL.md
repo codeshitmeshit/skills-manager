@@ -28,6 +28,7 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
    - `github_trending`：GitHub Trending 开发者项目线索。
    - `news`：AI、开发者工具、开源、模型、云服务、技术商业新闻 RSS 线索。
    - `search_cosh`：来自 `search.cosh.fun` 的关键词搜索结果，用于提高新闻发现准确度和交叉验证置信度。
+   - `weather`：北京、广州天气预报，默认来自 `wttr.in`。
    - `search_queries`：建议补充搜索的查询词。
    - `errors`：各来源失败原因。
 6. 对失败来源或高风险事实进行补充搜索。涉及“今天、最新、刚发布、涨跌、融资、政策、版本发布”等易变化信息时必须联网核验。
@@ -52,6 +53,8 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
 - `interests.exclude_domains`：排除域名，例如低质量社媒或不想看的来源。
 - `sections.*.enabled`：控制栏目是否输出。
 - `sections.*.limit`：控制栏目条目数量。
+- `weather.enabled`：是否抓取天气。
+- `weather.cities`：天气城市列表。默认只写北京和广州；每项包含中文 `name` 和查询用 `query`。
 - `search_cosh.enabled`：是否使用 `search.cosh.fun` 做关键词补充搜索。
 - `search_cosh.time_range`：默认 `day`，用于优先发现当天新闻。
 - `search_cosh.limit_per_query`：每个关键词保留的搜索结果数量。
@@ -97,6 +100,12 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
 - 从当天信息中提炼趋势、机会、风险或值得跟进的问题。
 - 明确区分事实和判断，不要把推测写成事实。
 
+### 天气
+
+- 默认只输出北京和广州。
+- 每个城市写今天、明天温度范围、当前天气描述、体感温度、湿度和简短出行建议。
+- 如果天气来源失败，写“天气数据暂不可用”，不要阻塞日报生成。
+
 ## 输出模板
 
 ```markdown
@@ -122,6 +131,16 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
 - 观察 1：基于今天条目的趋势或判断。
 - 观察 2：可选。
 
+## 🌤️ 天气
+
+**北京**
+- 今天：{description}，{min_c}°C ~ {max_c}°C，当前 {temp_c}°C，体感 {feels_like_c}°C
+- 明天：{min_c}°C ~ {max_c}°C
+- 建议：一句简短建议。
+
+**广州**
+- 今天：...
+
 ---
 
 > 来源以标题内链接为准；实时信息请以官方页面为最终准绳。
@@ -138,6 +157,7 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
 - 如果 `search_cosh.unresponsive_engines` 显示多个搜索引擎不可用，降低搜索覆盖置信度，不要把“未搜到”当成“没有发生”。
 - 如果联网不可用，明确标注“以下基于预抓取结果，未完成实时核验”，并避免使用“最新、今日已确认”等强表述。
 - 如果用户关闭某栏目，不要输出该栏目标题。
+- 天气栏目默认只写北京和广州；用户临时指定城市时才增加或替换城市。
 
 ## 质量检查
 
@@ -147,6 +167,7 @@ description: 生成 AI 与开发者技术日报的中文 Markdown 简报。用�
 - 是否读取了 `config.json` 并应用用户临时覆盖。
 - 是否查看了 `search_cosh` 结果和 `unresponsive_engines`，并据此调整新闻置信度。
 - 是否按 `interests` 提升关注内容优先级，并过滤排除项。
+- 是否按 `weather.cities` 输出天气；默认只包含北京、广州。
 - 是否对失败来源进行了降级搜索或保守处理。
 - 是否删除了重复新闻和低价值填充项。
 - 是否所有产品、仓库、新闻标题都有链接。

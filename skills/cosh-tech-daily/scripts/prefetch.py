@@ -9,6 +9,7 @@ instead of raising, allowing the skill user to fall back source-by-source.
 from __future__ import annotations
 
 import concurrent.futures
+import argparse
 import json
 import re
 import subprocess
@@ -68,11 +69,20 @@ DEFAULT_CONFIG = {
         "language": "auto",
         "limit_per_query": 3,
     },
+    "weather": {
+        "enabled": True,
+        "provider": "wttr.in",
+        "cities": [
+            {"name": "北京", "query": "Beijing"},
+            {"name": "广州", "query": "Guangzhou"},
+        ],
+    },
     "sections": {
         "ai_products": {"enabled": True, "limit": 6},
         "github_trending": {"enabled": True, "limit": 5},
         "important_news": {"enabled": True, "limit": 8},
         "daily_observations": {"enabled": True, "limit": 3},
+        "weather": {"enabled": True, "limit": 2},
     },
     "news_queries": [
         "AI OR OpenAI OR Anthropic OR Google DeepMind when:1d",
@@ -353,6 +363,54 @@ def fetch_search_cosh(config: dict) -> dict:
     return output
 
 
+def wttr_url(city_query: str) -> str:
+    encoded = urllib.parse.quote(city_query)
+    return f"https://wttr.in/{encoded}?format=j1"
+
+
+def fetch_weather_city(city: dict) -> dict:
+    payload = fetch_json(wttr_url(city["query"]))
+    current = payload.get("current_condition", [{}])[0]
+    forecast = payload.get("weather", [])
+    today = forecast[0] if forecast else {}
+    tomorrow = forecast[1] if len(forecast) > 1 else {}
+
+    return {
+        "name": city["name"],
+        "query": city["query"],
+        "current": {
+            "temp_c": current.get("temp_C"),
+            "feels_like_c": current.get("FeelsLikeC"),
+            "humidity": current.get("humidity"),
+            "wind_kmph": current.get("windspeedKmph"),
+            "description": (
+                current.get("weatherDesc", [{}])[0].get("value")
+                if current.get("weatherDesc")
+                else None
+            ),
+        },
+        "today": {
+            "date": today.get("date"),
+            "min_c": today.get("mintempC"),
+            "max_c": today.get("maxtempC"),
+            "uv_index": today.get("uvIndex"),
+        },
+        "tomorrow": {
+            "date": tomorrow.get("date"),
+            "min_c": tomorrow.get("mintempC"),
+            "max_c": tomorrow.get("maxtempC"),
+            "uv_index": tomorrow.get("uvIndex"),
+        },
+        "source": "wttr.in",
+    }
+
+
+def fetch_weather(config: dict) -> list[dict]:
+    weather_config = config.get("weather", DEFAULT_CONFIG["weather"])
+    cities = weather_config.get("cities", DEFAULT_CONFIG["weather"]["cities"])
+    return [fetch_weather_city(city) for city in cities]
+
+
 def fetch_news(config: dict) -> list[dict[str, str]]:
     news: list[dict[str, str]] = []
     for query in configured_news_queries(config):
@@ -375,7 +433,18 @@ def run_source(name: str, fn):
         return name, None, f"{type(exc).__name__}: {exc}"
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Prefetch data for Cosh Tech Daily.")
+    parser.add_argument(
+        "--only",
+        choices=["weather"],
+        help="Fetch only one source for quick checks.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     config = load_config()
     sections = config.get("sections", {})
     output = {
@@ -385,19 +454,27 @@ def main() -> int:
         "github_trending": [],
         "news": [],
         "search_cosh": {},
+        "weather": [],
         "search_queries": configured_search_queries(config),
         "errors": {},
     }
 
     sources = {}
-    if sections.get("ai_products", {}).get("enabled", True):
+    if args.only == "weather":
+        sources["weather"] = lambda: fetch_weather(config)
+    elif sections.get("ai_products", {}).get("enabled", True):
         sources["product_hunt"] = fetch_product_hunt
-    if sections.get("github_trending", {}).get("enabled", True):
-        sources["github_trending"] = fetch_github_trending
-    if sections.get("important_news", {}).get("enabled", True):
-        sources["news"] = lambda: fetch_news(config)
-        if config.get("search_cosh", {}).get("enabled", True):
-            sources["search_cosh"] = lambda: fetch_search_cosh(config)
+        if sections.get("github_trending", {}).get("enabled", True):
+            sources["github_trending"] = fetch_github_trending
+        if sections.get("important_news", {}).get("enabled", True):
+            sources["news"] = lambda: fetch_news(config)
+            if config.get("search_cosh", {}).get("enabled", True):
+                sources["search_cosh"] = lambda: fetch_search_cosh(config)
+        if (
+            sections.get("weather", {}).get("enabled", True)
+            and config.get("weather", {}).get("enabled", True)
+        ):
+            sources["weather"] = lambda: fetch_weather(config)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(run_source, name, fn) for name, fn in sources.items()]

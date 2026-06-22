@@ -86,6 +86,20 @@
     "language": "auto",
     "limit_per_query": 3
   },
+  "weather": {
+    "enabled": true,
+    "provider": "wttr.in",
+    "cities": [
+      {
+        "name": "北京",
+        "query": "Beijing"
+      },
+      {
+        "name": "广州",
+        "query": "Guangzhou"
+      }
+    ]
+  },
   "sections": {
     "ai_products": {
       "enabled": true,
@@ -102,6 +116,10 @@
     "daily_observations": {
       "enabled": true,
       "limit": 3
+    },
+    "weather": {
+      "enabled": true,
+      "limit": 2
     }
   },
   "news_queries": [
