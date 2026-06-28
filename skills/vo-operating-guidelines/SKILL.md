@@ -15,19 +15,21 @@ description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 
 
 ### 1. 探测 Virtual Office
 
-优先做 HTTP 探测，因为 AI 进程可能没有继承完整环境变量。常用端口当前默认多为 `8090`，测试环境可能是 `8038`：
+优先使用环境提供的 `VO_BASE_URL`；没有时用 `VO_PORT` 拼出同机地址；仍缺失时再回退到 `http://127.0.0.1:8090`。测试环境可能使用 `8038`，但不要把它当作生产默认值。
 
 ```bash
-curl -sS http://127.0.0.1:8090/status
-curl -sS http://127.0.0.1:8090/api/agents
-curl -sS http://127.0.0.1:8090/api/projects
+VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
+curl -sS "$VO_BASE_URL/status"
+curl -sS "$VO_BASE_URL/api/agents"
+curl -sS "$VO_BASE_URL/api/projects"
 ```
 
-如果 `8090` 不可用，可以尝试 `8038`。当接口返回 JSON，且 `/api/agents` 中存在 `agents` 列表时，基本可认为当前可访问 Virtual Office。
+如果默认地址不可用，且没有明确的 `VO_BASE_URL`/`VO_PORT`，可以尝试 `http://127.0.0.1:8038`。当接口返回 JSON，且 `/api/agents` 中存在 `agents` 列表时，基本可认为当前可访问 Virtual Office。
 
 也可以辅助读取环境变量，但不要只依赖它们：
 
 ```bash
+echo $VO_BASE_URL
 echo $VO_PORT
 echo $VO_STATUS_DIR
 echo $VO_GATEWAY_HTTP
@@ -41,12 +43,12 @@ echo $VO_GATEWAY_HTTP
 
 - 普通跨 agent 沟通、提问、短任务委派、状态转交、复用 `conversationId`：使用 `$vo-agent-communication`。
 - 目标是 `codex-local` 或 `providerKind=codex` 的 Codex 协作者：使用 `$vo-codex-communication`。
-- 需要访问网页、检索实时信息、读取页面内容或操作共享浏览器：使用 `$vo-browser-control`。
+- 需要检查 VO 共享浏览器状态、标签页或控制者：使用 `$vo-browser-control`。当前 VO 没有 provider-neutral browser action endpoint，不能通过该 skill 执行点击、输入、导航或 DOM snapshot。
 - 需要正式 AI 会议申请、多方同步决策、用户确认会议上下文或产出明确会议结论：继续使用本 skill 的会议判断规则；确定需要申请时读取 [references/meeting-requests.md](references/meeting-requests.md)。
 
 不要把本 skill 当成普通通信或浏览器操作的完整手册；命中专用场景后应切换到对应 skill 的规则。
 
-普通 agent 通信和 Codex 通信保持分开：先查询当前 agent 列表并识别目标的 `providerKind`，再路由。`providerKind=codex` 需要 Codex 专属健康检查和禁用 `sessions_send` 等规则；非 Codex agent 通信则关注 OpenClaw、Hermes 等平台不要绕过 VO 私有通道。不要把两类目标混用到同一个通信流程里。
+普通 agent 通信和 Codex 通信保持分开：先查询当前 agent 列表并识别目标的 `providerKind`，再路由。`providerKind=codex` 需要 Codex 专属健康检查和禁用 `sessions_send` 等规则；非 Codex agent 通信包括 OpenClaw、Hermes、Claude Code 等 provider，均不要绕过 VO 私有通道。不要把两类目标混用到同一个通信流程里。
 
 ### 3. 决定是否申请会议
 

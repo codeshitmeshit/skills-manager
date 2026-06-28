@@ -1,13 +1,13 @@
 ---
 name: vo-agent-communication
-description: 任意 CLI 或 agent 需要通过 Virtual Office 联系 OpenClaw、Hermes 或其他非 Codex 办公室 Agent 时使用；查询实际 Agent ID，通过统一通信 API 提问、委派任务、转交信息或复用 conversationId 延续跨平台会话，并返回可在 history 中追踪的真实响应。目标为 codex-local 或 providerKind=codex 时改用 vo-codex-communication。
+description: 任意 CLI 或 agent 需要通过 Virtual Office 联系 OpenClaw、Hermes、Claude Code 或其他非 Codex 办公室 Agent 时使用；查询实际 Agent ID，通过统一通信 API 提问、委派任务、转交信息或复用 conversationId 延续跨平台会话，并返回可在 history 中追踪的真实响应。目标为 codex-local 或 providerKind=codex 时改用 vo-codex-communication。
 ---
 
 # Virtual Office Agent 通信
 
 ## 目标
 
-通过 Virtual Office 与非 Codex 办公室 Agent 通信，确保请求、回复和状态均可在 Virtual Office history 中追踪。
+通过 Virtual Office 与非 Codex 办公室 Agent 通信，包括 OpenClaw、Hermes、Claude Code 等 provider，确保请求、回复和状态均可在 Virtual Office history 中追踪。
 
 目标为 `codex-local` 或 `providerKind=codex` 时，不使用本技能，改用 `$vo-codex-communication`。
 
@@ -24,7 +24,7 @@ POST /api/agent-platform-communications/send
 不要：
 
 - 直接调用 OpenClaw 私有 session。
-- 直接执行 Hermes CLI 或其他目标平台的私人 CLI。
+- 直接执行 Hermes、Claude Code CLI 或其他目标平台的私人 CLI。
 - 绕过 Virtual Office 建立不可见通信。
 - 把目标 Agent 当成本地 Codex subagent。
 - 猜测、补全或复用未确认的 Agent ID。
@@ -37,7 +37,7 @@ POST /api/agent-platform-communications/send
 优先使用环境提供的 `VO_BASE_URL`。同机默认地址为：
 
 ```bash
-VO_BASE_URL=http://127.0.0.1:8090
+VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
 ```
 
 如果调用方位于容器或远程环境，使用其能够访问的 Virtual Office 地址，不要假设 `127.0.0.1` 指向宿主机。
@@ -54,6 +54,7 @@ curl -sS "${VO_BASE_URL:-http://127.0.0.1:8090}/api/agents"
 
 - `main`：OpenClaw 默认 Agent。
 - `hermes-default`：Hermes 默认 Agent。
+- `claude-code-local`：Claude Code 本地 Agent。
 - `codex-local`：Codex；遇到此目标必须改用 `$vo-codex-communication`。
 
 始终以 `/api/agents` 当前返回的实际 ID 和 provider 信息为准，不要把常见 ID 当作存在性证明。
@@ -115,6 +116,20 @@ curl -sS \
     "toAgentId": "hermes-default",
     "conversationId": "codex__hermes__review",
     "message": "请从产品角度评审这个方案，并指出两个主要风险。"
+  }'
+```
+
+向 Claude Code 发送消息：
+
+```bash
+curl -sS \
+  -X POST "${VO_BASE_URL:-http://127.0.0.1:8090}/api/agent-platform-communications/send" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fromAgentId": "codex-local",
+    "toAgentId": "claude-code-local",
+    "conversationId": "codex__claude-code__review",
+    "message": "请从实现角度评审这个改动，并只返回高风险问题。"
   }'
 ```
 

@@ -7,7 +7,7 @@ description: 任意 CLI 或 agent 需要联系 Virtual Office 中 providerKind=c
 
 ## 目标
 
-通过 Virtual Office 与 Codex 协作者 `codex-local` 通信，供 OpenClaw、Hermes、Claude 或其他能够访问 Virtual Office 的调用方复用，并确保 Codex 目标不会被误当作 OpenClaw 原生 agent 或 session。
+通过 Virtual Office 与 Codex 协作者 `codex-local` 通信，供 OpenClaw、Hermes、Claude Code 或其他能够访问 Virtual Office 的调用方复用，并确保 Codex 目标不会被误当作 OpenClaw 原生 agent 或 session。
 
 最关键的路由规则：目标属于 `providerKind=codex` 时，必须走 Virtual Office API；只有目标属于 OpenClaw 原生 agent 时，才考虑 `sessions_send`。
 
@@ -29,14 +29,18 @@ description: 任意 CLI 或 agent 需要联系 Virtual Office 中 providerKind=c
 
 需要联系 Codex 时，主动探测 Virtual Office，不要仅凭历史信息认定它可用。
 
-同机默认地址为 `http://127.0.0.1:8090`。如果当前 agent 位于容器或其他机器，使用其能够访问的 Virtual Office 地址，不要假设 `127.0.0.1` 指向宿主机。
+优先使用环境提供的 `VO_BASE_URL`。没有时用 `VO_PORT` 拼出同机地址；仍缺失时回退到 `http://127.0.0.1:8090`。如果当前 agent 位于容器或其他机器，使用其能够访问的 Virtual Office 地址，不要假设 `127.0.0.1` 指向宿主机。
+
+```bash
+VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
+```
 
 ### 2. 检查服务和 Codex
 
-先确认 Codex 集成健康：
+先确认 Codex 集成健康。当前 VO 同时支持 GET 和 POST，这里使用无副作用的 GET 示例：
 
 ```bash
-curl -sS http://127.0.0.1:8090/api/codex/test
+curl -sS "${VO_BASE_URL:-http://127.0.0.1:8090}/api/codex/test"
 ```
 
 要求响应包含 `"ok": true`。Virtual Office 还应满足：
@@ -48,7 +52,7 @@ curl -sS http://127.0.0.1:8090/api/codex/test
 再查询 agent：
 
 ```bash
-curl -sS http://127.0.0.1:8090/api/agents
+curl -sS "${VO_BASE_URL:-http://127.0.0.1:8090}/api/agents"
 ```
 
 确认结果中存在：
@@ -85,7 +89,7 @@ main__codex__release-review
 
 ```bash
 curl -sS \
-  -X POST http://127.0.0.1:8090/api/agent-platform-communications/send \
+  -X POST "${VO_BASE_URL:-http://127.0.0.1:8090}/api/agent-platform-communications/send" \
   -H 'Content-Type: application/json' \
   -d '{
     "fromAgentId": "main",
@@ -98,7 +102,7 @@ curl -sS \
   }'
 ```
 
-Hermes 使用 `hermes-default` 作为发送方：
+Hermes 通常使用 `hermes-default` 作为发送方：
 
 ```json
 {
@@ -107,7 +111,16 @@ Hermes 使用 `hermes-default` 作为发送方：
 }
 ```
 
-Claude 或其他调用方不要冒用 `main` 或 `hermes-default`；先从 Virtual Office 的 agent 清单或当前运行上下文确认自己的 agent ID。无法确认发送方身份时，报告缺失信息并停止发送。
+Claude Code 通常使用 `claude-code-local` 作为发送方：
+
+```json
+{
+  "fromAgentId": "claude-code-local",
+  "toAgentId": "codex-local"
+}
+```
+
+Claude Code 或其他调用方不要冒用 `main` 或 `hermes-default`；先从 Virtual Office 的 agent 清单或当前运行上下文确认自己的 agent ID。无法确认发送方身份时，报告缺失信息并停止发送。
 
 发送代码检查任务时，消息应说明范围和预期结果，例如：
 

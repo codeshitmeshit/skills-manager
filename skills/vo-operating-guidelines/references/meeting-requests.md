@@ -4,16 +4,22 @@
 
 ## 1. 识别可参会 AI
 
-申请会议前查询可用 agent。基础列表：
+申请会议前查询可用 agent。优先使用环境提供的 `VO_BASE_URL`；没有时用 `VO_PORT` 拼出同机地址；仍缺失时回退到 `http://127.0.0.1:8090`。
 
 ```bash
-curl -sS http://127.0.0.1:8090/api/agents
+VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
+```
+
+基础列表：
+
+```bash
+curl -sS "$VO_BASE_URL/api/agents"
 ```
 
 会议参与者优先使用 `/agents-list` 返回的 `key`，因为前端当前用该 key 作为选择值：
 
 ```bash
-curl -sS http://127.0.0.1:8090/agents-list
+curl -sS "$VO_BASE_URL/agents-list"
 ```
 
 重点查看：
@@ -44,7 +50,7 @@ POST /api/projects/{projectId}/tasks/{taskId}/meeting-requests
 示例：
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8090/api/projects/PROJECT_ID/tasks/TASK_ID/meeting-requests \
+curl -sS -X POST "$VO_BASE_URL/api/projects/PROJECT_ID/tasks/TASK_ID/meeting-requests" \
   -H 'Content-Type: application/json' \
   -d '{
     "requestingAgentId": "main",
@@ -83,19 +89,19 @@ curl -sS -X POST http://127.0.0.1:8090/api/projects/PROJECT_ID/tasks/TASK_ID/mee
 查询全部申请：
 
 ```bash
-curl -sS http://127.0.0.1:8090/api/meetings/requests
+curl -sS "$VO_BASE_URL/api/meetings/requests"
 ```
 
 只查 pending：
 
 ```bash
-curl -sS 'http://127.0.0.1:8090/api/meetings/requests?status=pending'
+curl -sS "$VO_BASE_URL/api/meetings/requests?status=pending"
 ```
 
 查某个任务的申请：
 
 ```bash
-curl -sS http://127.0.0.1:8090/api/projects/PROJECT_ID/tasks/TASK_ID/meeting-requests
+curl -sS "$VO_BASE_URL/api/projects/PROJECT_ID/tasks/TASK_ID/meeting-requests"
 ```
 
 ## 4. 用户控制面
