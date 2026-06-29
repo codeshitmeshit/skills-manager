@@ -7,16 +7,21 @@
   <style>
     :root {
       --card: #ffffff;
+      --page: #f5f7fb;
       --text: #1f2937;
       --muted: #64748b;
+      --subtle: #f8fafc;
       --primary: #2563eb;
       --soft: #dbeafe;
       --border: #e2e8f0;
-      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
-      --radius: 20px;
+      --border-strong: #cbd5e1;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+      --radius: 14px;
       --red: #b91c1c;
       --blue: #1d4ed8;
       --green: #15803d;
+      --amber: #b45309;
+      --code-bg: #111827;
     }
 
     * { box-sizing: border-box; }
@@ -24,83 +29,87 @@
     body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 31%),
-        linear-gradient(180deg, #f8fbff 0%, #eef2f7 100%);
+      background: linear-gradient(180deg, #f8fafc 0%, var(--page) 100%);
       color: var(--text);
-      line-height: 1.8;
+      line-height: 1.72;
     }
     a { color: inherit; }
+    a:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, 0.28);
+      outline-offset: 2px;
+    }
 
     .container {
-      max-width: 1080px;
+      max-width: 1160px;
       margin: 0 auto;
-      padding: 34px 24px 72px;
+      padding: 28px 24px 72px;
     }
 
     .back {
       display: inline-flex;
       align-items: center;
-      margin-bottom: 18px;
-      padding: 8px 12px;
+      margin-bottom: 14px;
+      padding: 7px 11px;
       border: 1px solid var(--border);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.75);
+      background: rgba(255, 255, 255, 0.86);
       color: #334155;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
     }
+    .back:hover { border-color: var(--border-strong); }
 
     .hero,
     .card,
     .toc,
     .step,
     .diagram {
-      background: rgba(255, 255, 255, 0.92);
+      background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
     }
 
     .hero {
-      padding: 38px;
-      margin-bottom: 22px;
+      padding: 34px;
+      margin-bottom: 18px;
+      border-top: 4px solid var(--primary);
     }
 
     .eyebrow {
       display: inline-flex;
-      margin-bottom: 16px;
-      padding: 6px 12px;
+      margin-bottom: 14px;
+      padding: 5px 10px;
       border-radius: 999px;
       background: var(--soft);
       color: var(--primary);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
     }
 
     h1 {
-      margin: 0 0 16px;
-      font-size: clamp(32px, 5vw, 54px);
-      line-height: 1.1;
+      margin: 0 0 14px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.12;
       letter-spacing: 0;
     }
     h2 {
-      margin: 0 0 18px;
-      font-size: 26px;
-      line-height: 1.35;
+      margin: 0 0 14px;
+      font-size: 24px;
+      line-height: 1.3;
     }
     h3 {
-      margin: 0 0 8px;
-      font-size: 19px;
+      margin: 0 0 7px;
+      font-size: 18px;
       line-height: 1.4;
     }
     p { margin: 0; color: var(--muted); }
-    .hero p { max-width: 830px; font-size: 17px; }
+    .hero p { max-width: 860px; font-size: 16px; }
     .prose {
       display: grid;
-      gap: 14px;
-      margin-top: 16px;
+      gap: 12px;
+      margin-top: 12px;
     }
     .prose p {
       color: #475569;
@@ -110,51 +119,68 @@
     .toc-links {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
     }
-    .meta { margin-top: 24px; }
+    .meta { margin-top: 20px; }
     .tag {
-      padding: 5px 11px;
+      padding: 4px 9px;
       border-radius: 999px;
-      background: #f1f5f9;
+      background: var(--subtle);
+      border: 1px solid var(--border);
       color: #475569;
       font-size: 12px;
       font-weight: 800;
     }
 
     .toc {
-      padding: 20px 24px;
-      margin: 22px 0;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      padding: 14px 18px;
+      margin: 18px 0;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
     }
     .toc strong {
       display: block;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .toc a {
-      padding: 7px 11px;
-      border-radius: 10px;
-      background: #f8fafc;
+      padding: 6px 9px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: var(--subtle);
       color: #334155;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
+    }
+    .toc a:hover {
+      border-color: var(--border-strong);
+      background: #ffffff;
+      color: var(--primary);
     }
 
     .card {
-      padding: 30px;
-      margin-top: 22px;
+      padding: 26px;
+      margin-top: 18px;
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 18px;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .dense-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
     }
     .mini-card {
-      padding: 18px;
+      padding: 15px;
       border: 1px solid var(--border);
-      border-radius: 16px;
-      background: #f8fafc;
+      border-radius: 12px;
+      background: var(--subtle);
     }
     .mini-card strong {
       display: block;
@@ -165,11 +191,46 @@
       color: var(--muted);
       font-size: 14px;
     }
+    .kv {
+      min-height: 82px;
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--subtle);
+    }
+    .kv span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .kv strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .summary-list {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .summary-list li {
+      padding: 12px 14px;
+      border-left: 3px solid var(--primary);
+      border-radius: 10px;
+      background: var(--subtle);
+      color: #334155;
+    }
 
     .steps {
       display: grid;
-      gap: 14px;
-      margin-top: 18px;
+      gap: 10px;
+      margin-top: 14px;
     }
     .step {
       display: flex;
@@ -191,26 +252,29 @@
     }
     .flow-step {
       display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      gap: 16px;
-      padding: 18px;
+      grid-template-columns: minmax(150px, 0.28fr) minmax(0, 1fr);
+      gap: 14px;
+      padding: 15px;
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 12px;
       background: #ffffff;
     }
     .flow-step strong {
+      display: block;
       color: var(--text);
+      overflow-wrap: anywhere;
     }
     .flow-step span {
       display: block;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 13px;
+      overflow-wrap: anywhere;
     }
     .code-card {
-      margin-top: 18px;
-      padding: 18px;
+      margin-top: 14px;
+      padding: 15px;
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 12px;
       background: #ffffff;
     }
     .code-card h3 {
@@ -219,44 +283,48 @@
     .code-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 12px;
+      gap: 7px;
+      margin-bottom: 10px;
     }
     .code-meta span {
-      padding: 4px 9px;
+      padding: 4px 8px;
       border-radius: 999px;
-      background: #f1f5f9;
+      background: var(--subtle);
+      border: 1px solid var(--border);
       color: #475569;
       font-size: 12px;
       font-weight: 800;
+      overflow-wrap: anywhere;
     }
 
     .diagram {
-      margin-top: 18px;
-      padding: 16px;
+      margin-top: 14px;
+      padding: 12px;
       background: #ffffff;
+      box-shadow: none;
     }
     .diagram img {
       display: block;
       width: 100%;
-      border-radius: 18px;
+      border-radius: 12px;
       border: 1px solid var(--border);
     }
     .caption {
-      margin-top: 10px;
-      font-size: 14px;
+      margin-top: 8px;
+      font-size: 13px;
       text-align: center;
     }
 
     pre {
       overflow-x: auto;
-      margin: 18px 0 0;
-      padding: 20px;
-      border-radius: 16px;
-      background: #0f172a;
+      margin: 12px 0 0;
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--code-bg);
       color: #e5e7eb;
-      font-size: 14px;
-      line-height: 1.7;
+      font-size: 13px;
+      line-height: 1.65;
+      tab-size: 2;
     }
     code {
       font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
@@ -271,9 +339,9 @@
     }
 
     .callout {
-      margin-top: 18px;
-      padding: 18px;
-      border-radius: 16px;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 12px;
       border: 1px solid #bfdbfe;
       background: #eff6ff;
     }
@@ -299,11 +367,11 @@
       text-decoration: none;
     }
     .concept-note {
-      margin-top: 14px;
-      padding: 16px;
+      margin-top: 10px;
+      padding: 14px;
       border: 1px solid var(--border);
-      border-radius: 16px;
-      background: #f8fafc;
+      border-radius: 12px;
+      background: var(--subtle);
     }
     .concept-note h3 {
       margin-bottom: 8px;
@@ -311,48 +379,59 @@
 
     .checklist {
       display: grid;
-      gap: 12px;
-      margin-top: 18px;
+      gap: 10px;
+      margin-top: 14px;
       padding: 0;
       list-style: none;
     }
     .checklist li {
-      padding: 14px 16px;
+      padding: 12px 14px;
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #f8fafc;
+      border-radius: 12px;
+      background: var(--subtle);
       color: #334155;
     }
 
     .table-wrap {
       overflow-x: auto;
-      margin-top: 18px;
+      margin-top: 14px;
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 12px;
       background: #ffffff;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 720px;
+      min-width: 760px;
     }
     th,
     td {
-      padding: 15px 16px;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--border);
       text-align: left;
       vertical-align: top;
-    }
-    th {
-      background: #f8fafc;
-      color: #334155;
       font-size: 14px;
     }
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--subtle);
+      color: #334155;
+      font-size: 13px;
+      z-index: 1;
+    }
+    td {
+      color: #475569;
+      overflow-wrap: anywhere;
+    }
     tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #fbfdff; }
 
     @media (max-width: 820px) {
-      .grid { grid-template-columns: 1fr; }
+      .grid,
+      .dense-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .flow-step { grid-template-columns: 1fr; }
+      .toc { position: static; }
       .hero,
       .card,
       .toc { border-radius: 18px; }
@@ -360,9 +439,12 @@
     @media (max-width: 560px) {
       .container { padding: 24px 16px 48px; }
       .hero,
-      .card { padding: 22px; }
+      .card { padding: 20px; }
+      .dense-grid { grid-template-columns: 1fr; }
       .step { flex-direction: column; }
       .toc-links { display: grid; }
+      h1 { font-size: 30px; }
+      h2 { font-size: 22px; }
     }
   </style>
 </head>
@@ -391,7 +473,9 @@
         <a href="#goal">目标</a>
         <a href="#context">背景</a>
         <a href="#flow">详细链路</a>
+        <a href="#data">数据与分支</a>
         <a href="#code">关键代码</a>
+        <a href="#verify">验证调试</a>
         <a href="#evidence">证据</a>
         <a href="#concept-notes">概念补充</a>
         <a href="#risks">风险</a>
@@ -402,11 +486,22 @@
     <section id="goal" class="card">
       <h2>目标</h2>
       <p>{{GOAL_TEXT}}</p>
+      <div class="dense-grid">
+        <div class="kv"><span>入口</span><strong>{{ENTRYPOINT}}</strong></div>
+        <div class="kv"><span>触发条件</span><strong>{{TRIGGER}}</strong></div>
+        <div class="kv"><span>终止点</span><strong>{{TERMINAL_POINT}}</strong></div>
+        <div class="kv"><span>置信度</span><strong>{{PAGE_CONFIDENCE}}</strong></div>
+      </div>
       <div class="grid">
         <div class="mini-card"><strong>{{POINT_ONE_TITLE}}</strong><span>{{POINT_ONE_TEXT}}</span></div>
         <div class="mini-card"><strong>{{POINT_TWO_TITLE}}</strong><span>{{POINT_TWO_TEXT}}</span></div>
         <div class="mini-card"><strong>{{POINT_THREE_TITLE}}</strong><span>{{POINT_THREE_TEXT}}</span></div>
       </div>
+      <ul class="summary-list">
+        <li><strong>本页核心判断：</strong>{{CORE_CLAIM_ONE}}</li>
+        <li><strong>最容易误解的点：</strong>{{COMMON_MISREADING}}</li>
+        <li><strong>阅读源码时先看：</strong>{{FIRST_FILES_TO_READ}}</li>
+      </ul>
     </section>
 
     <section id="context" class="card">
@@ -427,6 +522,7 @@
       <div class="prose">
         <p>{{FLOW_OVERVIEW_ONE}}</p>
         <p>{{FLOW_OVERVIEW_TWO}}</p>
+        <p>{{FLOW_OVERVIEW_THREE}}</p>
       </div>
       <div class="steps">
         <div class="flow-step">
@@ -474,6 +570,73 @@
       </div>
     </section>
 
+    <section id="data" class="card">
+      <h2>数据流与分支</h2>
+      <p>{{DATA_FLOW_INTRO}}</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>输入</th>
+              <th>关键动作</th>
+              <th>输出或状态变化</th>
+              <th>证据</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{DATA_STAGE_ONE}}</td>
+              <td>{{DATA_INPUT_ONE}}</td>
+              <td>{{DATA_ACTION_ONE}}</td>
+              <td>{{DATA_OUTPUT_ONE}}</td>
+              <td>{{DATA_EVIDENCE_ONE}}</td>
+            </tr>
+            <tr>
+              <td>{{DATA_STAGE_TWO}}</td>
+              <td>{{DATA_INPUT_TWO}}</td>
+              <td>{{DATA_ACTION_TWO}}</td>
+              <td>{{DATA_OUTPUT_TWO}}</td>
+              <td>{{DATA_EVIDENCE_TWO}}</td>
+            </tr>
+            <tr>
+              <td>{{DATA_STAGE_THREE}}</td>
+              <td>{{DATA_INPUT_THREE}}</td>
+              <td>{{DATA_ACTION_THREE}}</td>
+              <td>{{DATA_OUTPUT_THREE}}</td>
+              <td>{{DATA_EVIDENCE_THREE}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>分支或异常</th>
+              <th>触发条件</th>
+              <th>处理方式</th>
+              <th>读者应检查的代码</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{BRANCH_ONE_NAME}}</td>
+              <td>{{BRANCH_ONE_CONDITION}}</td>
+              <td>{{BRANCH_ONE_BEHAVIOR}}</td>
+              <td>{{BRANCH_ONE_EVIDENCE}}</td>
+            </tr>
+            <tr>
+              <td>{{BRANCH_TWO_NAME}}</td>
+              <td>{{BRANCH_TWO_CONDITION}}</td>
+              <td>{{BRANCH_TWO_BEHAVIOR}}</td>
+              <td>{{BRANCH_TWO_EVIDENCE}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="code" class="card">
       <h2>关键代码摘录</h2>
       <p>{{CODE_INTRO}}</p>
@@ -502,6 +665,79 @@
           <strong>这段代码说明什么</strong>
           <p>{{CODE_TWO_NOTE}}</p>
         </div>
+      </div>
+      <div class="code-card">
+        <h3>{{CODE_THREE_TITLE}}</h3>
+        <div class="code-meta">
+          <span>{{CODE_THREE_FILE}}</span>
+          <span>{{CODE_THREE_SYMBOL}}</span>
+          <span>{{CODE_THREE_PURPOSE}}</span>
+        </div>
+        <pre><code>{{CODE_THREE_SAMPLE}}</code></pre>
+        <div class="callout">
+          <strong>这段代码说明什么</strong>
+          <p>{{CODE_THREE_NOTE}}</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="verify" class="card">
+      <h2>自己验证与调试入口</h2>
+      <p>{{VERIFY_INTRO}}</p>
+      <div class="dense-grid">
+        <div class="kv"><span>最小命令或触发方式</span><strong>{{VERIFY_COMMAND}}</strong></div>
+        <div class="kv"><span>前置条件</span><strong>{{VERIFY_PREREQUISITES}}</strong></div>
+        <div class="kv"><span>样例输入</span><strong>{{VERIFY_SAMPLE_INPUT}}</strong></div>
+        <div class="kv"><span>预期观察结果</span><strong>{{VERIFY_EXPECTED}}</strong></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>失败现象</th>
+              <th>优先检查</th>
+              <th>替代静态验证</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{FAILURE_ONE_SYMPTOM}}</td>
+              <td>{{FAILURE_ONE_CHECK}}</td>
+              <td>{{FAILURE_ONE_FALLBACK}}</td>
+            </tr>
+            <tr>
+              <td>{{FAILURE_TWO_SYMPTOM}}</td>
+              <td>{{FAILURE_TWO_CHECK}}</td>
+              <td>{{FAILURE_TWO_FALLBACK}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>断点或观察点</th>
+              <th>触发方式</th>
+              <th>重点观察</th>
+              <th>没命中时检查</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{DEBUG_ONE_POINT}}</td>
+              <td>{{DEBUG_ONE_TRIGGER}}</td>
+              <td>{{DEBUG_ONE_OBSERVE}}</td>
+              <td>{{DEBUG_ONE_IF_NOT_HIT}}</td>
+            </tr>
+            <tr>
+              <td>{{DEBUG_TWO_POINT}}</td>
+              <td>{{DEBUG_TWO_TRIGGER}}</td>
+              <td>{{DEBUG_TWO_OBSERVE}}</td>
+              <td>{{DEBUG_TWO_IF_NOT_HIT}}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -532,6 +768,16 @@
               <td>{{CLAIM_THREE}}</td>
               <td>{{EVIDENCE_THREE}}</td>
               <td>{{CONFIDENCE_THREE}}</td>
+            </tr>
+            <tr>
+              <td>{{CLAIM_FOUR}}</td>
+              <td>{{EVIDENCE_FOUR}}</td>
+              <td>{{CONFIDENCE_FOUR}}</td>
+            </tr>
+            <tr>
+              <td>{{CLAIM_FIVE}}</td>
+              <td>{{EVIDENCE_FIVE}}</td>
+              <td>{{CONFIDENCE_FIVE}}</td>
             </tr>
           </tbody>
         </table>
