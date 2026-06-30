@@ -9,7 +9,7 @@ description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 
 
 作为 Virtual Office 的总入口准则，先判断当前是否在 VO 环境中，再根据任务意图路由到合适的 VO skill，并约束 AI 何时可以申请会议、何时必须降级或等待用户。
 
-本 skill 不替代专用 VO skill；普通通信、Codex 通信和浏览器操作必须路由到对应 skill。
+本 skill 不替代专用 VO skill；普通通信、Codex 通信、浏览器状态、项目工作流、Agent workspace 和会议执行必须路由到对应 skill。
 
 ## 工作流
 
@@ -54,9 +54,12 @@ echo $VO_GATEWAY_HTTP
 - 普通跨 agent 沟通、提问、短任务委派、状态转交、复用 `conversationId`：使用 `$vo-agent-communication`。
 - 目标是 `codex-local` 或 `providerKind=codex` 的 Codex 协作者：使用 `$vo-codex-communication`。
 - 需要检查 VO 共享浏览器状态、标签页或控制者：使用 `$vo-browser-control`。当前 VO 没有 provider-neutral browser action endpoint，不能通过该 skill 执行点击、输入、导航或 DOM snapshot。
+- 需要读取或推进项目/任务执行、Project Execution、review、验收、阻塞或项目 artifact：使用 `$vo-project-workflow`。
+- 需要读取或维护 Agent workspace、公告、workspace 任务、笔记、受控文本文件、Skills Library 或 OpenClaw agent skill：使用 `$vo-agent-workspace`。
+- 需要操作已确认的 executable meeting，包括 run/transition、事件跟踪、干预、冲突处理或 action item 草稿：使用 `$vo-meeting-execution`。
 - 需要正式 AI 会议申请、多方同步决策、用户确认会议上下文或产出明确会议结论：继续使用本 skill 的会议判断规则；确定需要申请时读取 [references/meeting-requests.md](references/meeting-requests.md)。
 
-不要把本 skill 当成普通通信或浏览器操作的完整手册；命中专用场景后应切换到对应 skill 的规则。
+不要把本 skill 当成普通通信、浏览器、项目、workspace 或会议执行的完整手册；命中专用场景后应切换到对应 skill 的规则。
 
 普通 agent 通信和 Codex 通信保持分开：先查询当前 agent 列表并识别目标的 `providerKind`，再路由。`providerKind=codex` 需要 Codex 专属健康检查和禁用 `sessions_send` 等规则；非 Codex agent 通信包括 OpenClaw、Hermes、Claude Code 等 provider，均不要绕过 VO 私有通道。不要把两类目标混用到同一个通信流程里。
 
@@ -100,8 +103,9 @@ AI 只能申请和查询会议请求，不要自行调用确认或拒绝接口�
 执行 VO 动作前确认：
 
 - 已通过 HTTP 探测确认当前可访问 VO，或已明确降级。
-- 已根据任务意图路由到正确 VO skill，没有用本 skill 替代专用通信或浏览器规则。
+- 已根据任务意图路由到正确 VO skill，没有用本 skill 替代专用通信、浏览器、项目、workspace 或会议执行规则。
 - 普通通信已先识别目标 `providerKind`，并在 `$vo-agent-communication` 和 `$vo-codex-communication` 之间选择其一。
 - 普通协作已优先考虑专用通信 skill，会议只用于正式多方决策或需要用户确认上下文的场景。
+- 项目执行、Agent workspace、已确认会议执行已分别路由到 `$vo-project-workflow`、`$vo-agent-workspace`、`$vo-meeting-execution`。
 - 需要提交或查询会议申请时，已读取 [references/meeting-requests.md](references/meeting-requests.md)。
 - 没有自行 confirm/reject 会议，也没有替用户选择最终会议上下文。
