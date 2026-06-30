@@ -190,7 +190,7 @@ When updating another CLI, scoped skills that do not include the current target 
 已跳过 1 个不适用于 codex 的 skill。
 ```
 
-The skipped skills are not installed, verified, or counted as synced skills for that CLI. `cosh-skills check` validates `cli_scope`; the current supported values are `codex`, `claude`, `qwen`, `openclaw`, `hermes`, and `cursor`.
+The skipped skills are not installed, verified, or counted as synced skills for that CLI. `cosh-skills check` validates `cli_scope`; the current install-target values are `codex`, `claude`, `qwen`, `openclaw`, `hermes`, and `cursor`. It also accepts `vo` as a pseudo-scope for Virtual Office shared skills; `vo` is not a direct `update --cli` target.
 
 ## First-Version Limits
 

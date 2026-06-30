@@ -6,6 +6,10 @@ from typing import Any
 
 SUPPORTED_CLIS = ("codex", "claude", "qwen", "openclaw", "hermes", "cursor")
 
+# Pseudo-scope used by Virtual Office shared skills. It is valid in SKILL.md
+# metadata but is not an install target for `cosh-skills update --cli`.
+SUPPORTED_CLI_SCOPES = (*SUPPORTED_CLIS, "vo")
+
 
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], list[str]]:
     if not text.startswith("---\n"):
@@ -89,11 +93,11 @@ def parse_cli_scope(metadata: dict[str, Any]) -> tuple[tuple[str, ...] | None, l
             errors.append("cli_scope 中的每一项都必须是非空 CLI 名称。")
             continue
         cli_name = item.strip()
-        if cli_name not in SUPPORTED_CLIS:
+        if cli_name not in SUPPORTED_CLI_SCOPES:
             errors.append(
                 "cli_scope 包含不支持的 CLI：{name}。当前支持：{items}。".format(
                     name=cli_name,
-                    items=", ".join(SUPPORTED_CLIS),
+                    items=", ".join(SUPPORTED_CLI_SCOPES),
                 )
             )
             continue

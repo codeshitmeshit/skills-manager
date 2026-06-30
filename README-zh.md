@@ -190,7 +190,7 @@ cli_scope:
 已跳过 1 个不适用于 codex 的 skill。
 ```
 
-被跳过的 skill 不会安装、校验，也不会计入该 CLI 的同步数量。`cosh-skills check` 会校验 `cli_scope`；当前支持的值是 `codex`、`claude`、`qwen`、`openclaw`、`hermes` 和 `cursor`。
+被跳过的 skill 不会安装、校验，也不会计入该 CLI 的同步数量。`cosh-skills check` 会校验 `cli_scope`；当前可安装目标值是 `codex`、`claude`、`qwen`、`openclaw`、`hermes` 和 `cursor`。同时支持 `vo` 作为 Virtual Office 共享 skill 的伪 scope；`vo` 不是可直接执行 `update --cli` 的目标。
 
 ## 第一版限制
 

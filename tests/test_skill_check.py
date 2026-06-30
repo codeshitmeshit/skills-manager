@@ -41,6 +41,7 @@ class SkillCheckTest(unittest.TestCase):
                 "cli_scope:\n"
                 "  - cursor\n"
                 "  - hermes\n"
+                "  - vo\n"
                 "---\n\n"
                 "# Git Helper\n",
                 encoding="utf-8",
