@@ -34,9 +34,12 @@ POST /api/agent-platform-communications/send
 
 ### 1. 确定 Virtual Office 地址
 
-优先使用环境提供的 `VO_BASE_URL`。同机默认地址为：
+优先使用当前运行环境或 `start.sh` 启动配置中的端口。`start.sh` 会加载 `.env` 并导出 `VO_PORT`，服务端按这个端口启动；不要只探测 `8090`。
 
 ```bash
+if [ -z "${VO_BASE_URL:-}" ] && [ -z "${VO_PORT:-}" ] && [ -f /home/wo/code/my-virtual-office/.env ]; then
+  VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' /home/wo/code/my-virtual-office/.env)"
+fi
 VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
 ```
 

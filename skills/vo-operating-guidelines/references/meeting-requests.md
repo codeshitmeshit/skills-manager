@@ -4,9 +4,12 @@
 
 ## 1. 识别可参会 AI
 
-申请会议前查询可用 agent。优先使用环境提供的 `VO_BASE_URL`；没有时用 `VO_PORT` 拼出同机地址；仍缺失时回退到 `http://127.0.0.1:8090`。
+申请会议前查询可用 agent。优先使用当前运行环境或 `start.sh` 启动配置中的端口。`start.sh` 会加载 `.env` 并导出 `VO_PORT`，服务端按这个端口启动；不要只探测 `8090`。
 
 ```bash
+if [ -z "${VO_BASE_URL:-}" ] && [ -z "${VO_PORT:-}" ] && [ -f /home/wo/code/my-virtual-office/.env ]; then
+  VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' /home/wo/code/my-virtual-office/.env)"
+fi
 VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
 ```
 

@@ -15,16 +15,26 @@ description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 
 
 ### 1. 探测 Virtual Office
 
-优先使用环境提供的 `VO_BASE_URL`；没有时用 `VO_PORT` 拼出同机地址；仍缺失时再回退到 `http://127.0.0.1:8090`。测试环境可能使用 `8038`，但不要把它当作生产默认值。
+优先使用当前运行环境或 `start.sh` 启动配置中的端口。`start.sh` 会加载 `.env` 并导出 `VO_PORT`，服务端按这个端口启动；因此不能因为 `127.0.0.1:8090` 不通就判断 VO 不可用。
+
+探测顺序：
+
+1. 如果已有 `VO_BASE_URL`，直接使用。
+2. 如果有 `VO_PORT`，使用 `http://127.0.0.1:$VO_PORT`。
+3. 如果能访问 VO 项目目录，读取其 `.env` 中的 `VO_PORT`，例如 `/home/wo/code/my-virtual-office/.env`。
+4. 最后才回退到 `http://127.0.0.1:8090`。测试环境可能使用 `8038`，但不要把它当作生产默认值。
 
 ```bash
+if [ -z "${VO_BASE_URL:-}" ] && [ -z "${VO_PORT:-}" ] && [ -f /home/wo/code/my-virtual-office/.env ]; then
+  VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' /home/wo/code/my-virtual-office/.env)"
+fi
 VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
 curl -sS "$VO_BASE_URL/status"
 curl -sS "$VO_BASE_URL/api/agents"
 curl -sS "$VO_BASE_URL/api/projects"
 ```
 
-如果默认地址不可用，且没有明确的 `VO_BASE_URL`/`VO_PORT`，可以尝试 `http://127.0.0.1:8038`。当接口返回 JSON，且 `/api/agents` 中存在 `agents` 列表时，基本可认为当前可访问 Virtual Office。
+如果按启动配置得到的地址不可用，不要立刻判定 VO 不可用；先报告尝试过的 `VO_BASE_URL`，再在没有明确 `VO_BASE_URL`/`VO_PORT` 的情况下尝试 `http://127.0.0.1:8038`。当接口返回 JSON，且 `/api/agents` 中存在 `agents` 列表时，基本可认为当前可访问 Virtual Office。
 
 也可以辅助读取环境变量，但不要只依赖它们：
 
