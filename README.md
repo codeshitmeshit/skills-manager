@@ -89,6 +89,14 @@ Initialize the Qwen startup hook:
 cosh-skills init --cli qwen
 ```
 
+Initialize the OpenClaw startup hook:
+
+```bash
+cosh-skills init --cli openclaw
+```
+
+This writes `~/.openclaw/openclaw.json`, preserves existing OpenClaw configuration, and adds the same startup sync command with the current skill repository path.
+
 ## Basic Usage
 
 Set the local skill repository path:

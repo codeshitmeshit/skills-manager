@@ -89,6 +89,14 @@ Codex 对新增或变更的非托管 hook 需要信任后才会执行。运行 `
 cosh-skills init --cli qwen
 ```
 
+初始化 OpenClaw 启动 hook：
+
+```bash
+cosh-skills init --cli openclaw
+```
+
+该命令会写入 `~/.openclaw/openclaw.json`，保留已有 OpenClaw 配置，并追加带有当前 skill 仓库路径的启动同步命令。
+
 ## 基本使用
 
 设置本地 skill 仓库路径：

@@ -11,6 +11,7 @@ from internal.hooks import (
     build_update_command,
     initialize_cli_hook,
     install_codex_session_start_hook,
+    install_openclaw_session_start_hook,
     install_qwen_session_start_hook,
 )
 
@@ -161,7 +162,7 @@ class HooksTest(unittest.TestCase):
             with self.assertRaises(HookInitError) as caught:
                 initialize_cli_hook(cli_name="claude", home=pathlib.Path(tmpdir))
 
-        self.assertIn("暂只支持 codex", str(caught.exception))
+        self.assertIn("暂只支持 codex、qwen、openclaw", str(caught.exception))
 
     def test_initialize_cli_hook_can_write_force_update_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -323,7 +324,116 @@ class QwenHooksTest(unittest.TestCase):
             with self.assertRaises(HookInitError) as caught:
                 initialize_cli_hook(cli_name="claude", home=pathlib.Path(tmpdir))
 
-        self.assertIn("暂只支持 codex、qwen", str(caught.exception))
+        self.assertIn("暂只支持 codex、qwen、openclaw", str(caught.exception))
+
+
+class OpenClawHooksTest(unittest.TestCase):
+    def test_install_openclaw_session_start_hook_preserves_openclaw_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hook_path = pathlib.Path(tmpdir) / ".openclaw" / "openclaw.json"
+            hook_path.parent.mkdir()
+            hook_path.write_text(
+                json.dumps(
+                    {
+                        "agents": {"defaults": {"workspace": "/tmp/workspace"}},
+                        "hooks": {"internal": {"enabled": True}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            added = install_openclaw_session_start_hook(
+                hook_path=hook_path,
+                command="/usr/bin/python3 -m internal.hook_runner --cli openclaw",
+            )
+
+            document = json.loads(hook_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(added)
+        self.assertIn("agents", document)
+        self.assertIn("internal", document["hooks"])
+        self.assertEqual(
+            document["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "/usr/bin/python3 -m internal.hook_runner --cli openclaw",
+        )
+        self.assertEqual(document["hooks"]["SessionStart"][0]["matcher"], "startup|resume")
+
+    def test_install_openclaw_session_start_hook_replaces_old_update_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hook_path = pathlib.Path(tmpdir) / ".openclaw" / "openclaw.json"
+            hook_path.parent.mkdir()
+            hook_path.write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "matcher": "startup|resume",
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "/usr/bin/python3 -m internal.cli update --cli openclaw",
+                                            "statusMessage": "Updating cosh skills",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            command = (
+                "PYTHONPATH=/tmp/skills-manager "
+                "/usr/bin/python3 -m internal.hook_runner --cli openclaw"
+            )
+
+            added = install_openclaw_session_start_hook(hook_path=hook_path, command=command)
+
+            document = json.loads(hook_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(added)
+        self.assertEqual(len(document["hooks"]["SessionStart"]), 1)
+        self.assertEqual(document["hooks"]["SessionStart"][0]["hooks"][0]["command"], command)
+
+    def test_initialize_cli_hook_for_openclaw_writes_openclaw_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+            repo_path = home / "skills-manager"
+
+            result = initialize_cli_hook(
+                cli_name="openclaw",
+                home=home,
+                repo_path=repo_path,
+                python_bin="/usr/bin/python3",
+            )
+
+            config = load_config(home=home)
+            document = json.loads((home / ".openclaw" / "openclaw.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(result.added)
+        self.assertEqual(config["repo_path"], str(repo_path))
+        self.assertEqual(config["cli"]["openclaw"]["skills_path"], "~/.openclaw/skills")
+        self.assertEqual(
+            document["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            f"PYTHONPATH={repo_path} /usr/bin/python3 -m internal.hook_runner --cli openclaw",
+        )
+
+    def test_initialize_cli_hook_for_openclaw_with_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            initialize_cli_hook(
+                cli_name="openclaw",
+                home=home,
+                repo_path=home / "repo",
+                python_bin="/usr/bin/python3",
+                force=True,
+            )
+
+            document = json.loads((home / ".openclaw" / "openclaw.json").read_text(encoding="utf-8"))
+
+        self.assertIn("--force", document["hooks"]["SessionStart"][0]["hooks"][0]["command"])
 
 
 if __name__ == "__main__":

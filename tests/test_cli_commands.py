@@ -110,7 +110,7 @@ class CliCommandTest(unittest.TestCase):
             result = self.run_cli("init", "--cli", "claude", home=pathlib.Path(tmpdir))
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("暂只支持 codex", result.stderr)
+        self.assertIn("暂只支持 codex、qwen、openclaw", result.stderr)
 
     def test_init_cli_qwen_writes_hook_and_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -137,6 +137,35 @@ class CliCommandTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--force", settings["hooks"]["SessionStart"][0]["hooks"][0]["command"])
+
+    def test_init_cli_openclaw_writes_hook_and_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "openclaw", home=home)
+
+            openclaw = json.loads((home / ".openclaw" / "openclaw.json").read_text(encoding="utf-8"))
+            config = json.loads((home / ".cosh-skills" / "config.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Codex 需要通过 /hooks 信任", result.stdout)
+        self.assertIn(
+            "-m internal.hook_runner --cli openclaw",
+            openclaw["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+        )
+        self.assertEqual(config["repo_path"], str(ROOT))
+        self.assertEqual(config["cli"]["openclaw"]["skills_path"], "~/.openclaw/skills")
+
+    def test_init_cli_openclaw_force_writes_force_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = pathlib.Path(tmpdir)
+
+            result = self.run_cli("init", "--cli", "openclaw", "--force", home=home)
+
+            openclaw = json.loads((home / ".openclaw" / "openclaw.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--force", openclaw["hooks"]["SessionStart"][0]["hooks"][0]["command"])
 
     def test_init_cli_force_writes_force_hook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
