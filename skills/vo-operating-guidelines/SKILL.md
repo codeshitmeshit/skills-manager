@@ -1,111 +1,73 @@
 ---
 name: vo-operating-guidelines
-description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 环境、选择正确 VO skill、遵守 VO 工作边界、决定普通沟通还是申请 AI 会议、或处理 VO 不可用降级时使用；作为 VO 运行时协作、通信、浏览器和会议申请的总入口准则。
+description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 环境、读取 VO 本地权威 skill、选择正确 VO 工作流或处理 VO 不可用降级时使用；本 skill 只作为入口，不维护具体 VO API 指南。
 ---
 
-# Virtual Office 工作准则
+# Virtual Office Skill 入口
 
 ## 目标
 
-作为 Virtual Office 的总入口准则，先判断当前是否在 VO 环境中，再根据任务意图路由到合适的 VO skill，并约束 AI 何时可以申请会议、何时必须降级或等待用户。
+本 skill 只作为 Virtual Office 的入口。完整 VO 系 skill 由当前 Virtual Office 实例维护，必须优先读取当前本地 VO 暴露的 skill 文件，不要在 skill management 中维护或复述具体 VO API 操作细节。
 
-本 skill 不替代专用 VO skill；普通通信、Codex 通信、浏览器状态、项目工作流、Agent workspace 和会议执行必须路由到对应 skill。
+不要硬编码、输出或传播任何生产域名、外部部署 URL、token、cookie、密钥或非本地配置。所有 VO 操作依据都应来自当前可访问的本地 VO 实例。
 
-## 工作流
+## 探测当前 VO
 
-### 1. 探测 Virtual Office
+按以下顺序确定本地 `VO_BASE_URL`：
 
-优先使用当前运行环境或 `start.sh` 启动配置中的端口。`start.sh` 会加载 `.env` 并导出 `VO_PORT`，服务端按这个端口启动；因此不能因为 `127.0.0.1:8090` 不通就判断 VO 不可用。
+1. 如果环境变量已有 `VO_BASE_URL`，直接使用。
+2. 如果环境变量已有 `VO_PORT`，使用 `http://127.0.0.1:$VO_PORT`。
+3. 如果能访问当前 VO 项目本地 `.env`，读取其中的 `VO_PORT` 后使用 `http://127.0.0.1:$VO_PORT`。
+4. 最后尝试默认地址 `http://127.0.0.1:8090`。
 
-探测顺序：
-
-1. 如果已有 `VO_BASE_URL`，直接使用。
-2. 如果有 `VO_PORT`，使用 `http://127.0.0.1:$VO_PORT`。
-3. 如果能访问 VO 项目目录，读取其 `.env` 中的 `VO_PORT`，例如 `/home/wo/code/my-virtual-office/.env`。
-4. 最后才回退到 `http://127.0.0.1:8090`。测试环境可能使用 `8038`，但不要把它当作生产默认值。
+可使用下面的本地探测片段：
 
 ```bash
 if [ -z "${VO_BASE_URL:-}" ] && [ -z "${VO_PORT:-}" ] && [ -f /home/wo/code/my-virtual-office/.env ]; then
   VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' /home/wo/code/my-virtual-office/.env)"
 fi
 VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
-curl -sS "$VO_BASE_URL/status"
-curl -sS "$VO_BASE_URL/api/agents"
-curl -sS "$VO_BASE_URL/api/projects"
+curl -sS "$VO_BASE_URL/vo-config"
 ```
 
-如果按启动配置得到的地址不可用，不要立刻判定 VO 不可用；先报告尝试过的 `VO_BASE_URL`，再在没有明确 `VO_BASE_URL`/`VO_PORT` 的情况下尝试 `http://127.0.0.1:8038`。当接口返回 JSON，且 `/api/agents` 中存在 `agents` 列表时，基本可认为当前可访问 Virtual Office。
+如果当前运行环境不是 VO 本机环境，`127.0.0.1` 可能指向调用方自身。此时不要猜测公网地址；应停止 VO 专属动作，并要求提供当前可访问的本地 VO 地址。
 
-也可以辅助读取环境变量，但不要只依赖它们：
+## 读取本地权威 Skill
+
+读取当前 VO 实例的 skill 总入口：
 
 ```bash
-echo $VO_BASE_URL
-echo $VO_PORT
-echo $VO_STATUS_DIR
-echo $VO_GATEWAY_HTTP
+curl -sS "$VO_BASE_URL/skills/index.md"
 ```
 
-如果未检测到 VO，明确说明“当前未检测到 Virtual Office”，停止 VO 专属动作，并询问用户是否改用普通协作方式继续。
+`/skills/index.md` 由当前 VO 实例映射到本地 `vo-operating-guidelines` 权威 skill。根据该总入口的路由说明，按需读取对应 skill：
 
-### 2. 路由到专用 VO Skill
+```text
+/skills/vo-agent-communication/SKILL.md
+/skills/vo-codex-communication/SKILL.md
+/skills/vo-browser-control/SKILL.md
+/skills/vo-agent-workspace/SKILL.md
+/skills/vo-project-workflow/SKILL.md
+/skills/vo-meeting-execution/SKILL.md
+```
 
-根据任务意图选择：
+如果本地 VO skill 文件不可访问，不要继续执行 VO 专属动作，也不要使用 skill management 中的旧知识补全。报告实际失败地址和错误，并要求用户确认 VO 是否已启动或当前 agent 是否能访问该本地实例。
 
-- 普通跨 agent 沟通、提问、短任务委派、状态转交、复用 `conversationId`：使用 `$vo-agent-communication`。
-- 目标是 `codex-local` 或 `providerKind=codex` 的 Codex 协作者：使用 `$vo-codex-communication`。
-- 需要检查 VO 共享浏览器状态、标签页或控制者：使用 `$vo-browser-control`。当前 VO 没有 provider-neutral browser action endpoint，不能通过该 skill 执行点击、输入、导航或 DOM snapshot。
-- 需要读取或推进项目/任务执行、Project Execution、review、验收、阻塞或项目 artifact：使用 `$vo-project-workflow`。
-- 需要读取或维护 Agent workspace、公告、workspace 任务、笔记、受控文本文件、Skills Library 或 OpenClaw agent skill：使用 `$vo-agent-workspace`。
-- 需要操作已确认的 executable meeting，包括 run/transition、事件跟踪、干预、冲突处理或 action item 草稿：使用 `$vo-meeting-execution`。
-- 需要正式 AI 会议申请、多方同步决策、用户确认会议上下文或产出明确会议结论：继续使用本 skill 的会议判断规则；确定需要申请时读取 [references/meeting-requests.md](references/meeting-requests.md)。
+## 安全规则
 
-不要把本 skill 当成普通通信、浏览器、项目、workspace 或会议执行的完整手册；命中专用场景后应切换到对应 skill 的规则。
-
-普通 agent 通信和 Codex 通信保持分开：先查询当前 agent 列表并识别目标的 `providerKind`，再路由。`providerKind=codex` 需要 Codex 专属健康检查和禁用 `sessions_send` 等规则；非 Codex agent 通信包括 OpenClaw、Hermes、Claude Code 等 provider，均不要绕过 VO 私有通道。不要把两类目标混用到同一个通信流程里。
-
-### 3. 决定是否申请会议
-
-默认先使用普通沟通。只有满足以下条件之一时，才申请 AI 会议：
-
-- 需要另一个 AI 独立评审、补充专业判断或比较方案。
-- 需要多方同步决策，而不是单个 agent 的一次性回复。
-- 需要形成明确会议产出，例如决策、执行方向、风险结论或下一步责任。
-- 会议上下文需要用户确认选择，例如 `selectedContextIds` 或补充上下文。
-
-不要申请会议的场景：
-
-- 普通问答、简单澄清或单轮意见请求。
-- 自己卡住但只需要用户输入；此时向用户提问。
-- 可以通过 `$vo-agent-communication` 或 `$vo-codex-communication` 完成的普通协作。
-- 只是为了通知另一个 AI 或转交信息。
-
-申请前必须说明 `goal`、`expectedOutcome` 和 `reason`。申请后停止等待用户处理，不要假设会议已经开始。
-
-确定需要申请或查询 AI 会议时，读取 [references/meeting-requests.md](references/meeting-requests.md)，按其中流程识别参会者、提交请求、查询状态并处理用户控制面。
-
-### 4. 用户控制面
-
-AI 只能申请和查询会议请求，不要自行调用确认或拒绝接口。
-
-自动推荐的上下文默认不会进入会议。只有用户确认时选择的 `selectedContextIds` 和补充的 `supplementalContext` 才会进入会议。
-
-拒绝原因会写回来源任务评论，AI 后续可以在任务上下文里看到。不要绕过用户决定继续推进会议。
-
-## 降级规则
-
-- VO 不可用：说明当前未检测到 Virtual Office，停止 VO 专属动作，并询问是否改用普通协作方式。
-- 会议申请失败：报告真实错误，不宣称已申请成功，不重复提交无幂等保障的请求。
-- 无法确认项目或任务来源：说明当前会议接口只支持项目任务来源，向用户请求有效 `projectId` 和 `taskId`，或改用普通 agent 沟通。
-- 参会者无法确认：停止申请，列出已发现的候选信息并要求用户确认，不猜测 ID。
+- 只把当前本地 VO 实例暴露的 `/skills/.../SKILL.md` 作为 VO 操作指南的权威来源。
+- 不使用生产域名或外部 URL 作为 agent 操作依据。
+- 不输出生产域名、外部部署 URL、token、cookie、密钥或敏感配置。
+- 不在本 skill 中复述或维护具体 VO API 细节；读取本地 VO skill 后再执行。
+- 不绕过本地 VO 的通信、项目、会议、workspace 或浏览器边界。
+- 本地 VO 不可访问时，停止 VO 专属动作并明确降级。
 
 ## 质量检查
 
-执行 VO 动作前确认：
+执行任何 VO 动作前确认：
 
-- 已通过 HTTP 探测确认当前可访问 VO，或已明确降级。
-- 已根据任务意图路由到正确 VO skill，没有用本 skill 替代专用通信、浏览器、项目、workspace 或会议执行规则。
-- 普通通信已先识别目标 `providerKind`，并在 `$vo-agent-communication` 和 `$vo-codex-communication` 之间选择其一。
-- 普通协作已优先考虑专用通信 skill，会议只用于正式多方决策或需要用户确认上下文的场景。
-- 项目执行、Agent workspace、已确认会议执行已分别路由到 `$vo-project-workflow`、`$vo-agent-workspace`、`$vo-meeting-execution`。
-- 需要提交或查询会议申请时，已读取 [references/meeting-requests.md](references/meeting-requests.md)。
-- 没有自行 confirm/reject 会议，也没有替用户选择最终会议上下文。
+- 已确定当前可访问的本地 `VO_BASE_URL`。
+- 已读取 `$VO_BASE_URL/skills/index.md`。
+- 已按本地 VO skill 指南选择具体工作流。
+- 没有依赖 skill management 中的旧 VO API 说明。
+- 没有泄露或固化任何非本地地址与敏感信息。
