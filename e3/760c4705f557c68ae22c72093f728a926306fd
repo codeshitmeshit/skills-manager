@@ -1,0 +1,25 @@
+skills/cosh-tech-design-writer/SKILL.md
+  s_fcd916eed2e637::t_3b11ea1538d3be 18,48,178
+skills/cosh-tech-design-writer/references/code-change-implementation-rules.md
+  s_fcd916eed2e637::t_a8700c7106d7a4 7-8
+skills/cosh-tech-design-writer/references/codebase-inspection-rules.md
+  s_fcd916eed2e637::t_53ab4c730ca35d 5-6,38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "e3760c4705f557c68ae22c72093f728a926306fd",
+  "prompts": {},
+  "sessions": {
+    "s_fcd916eed2e637": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3a8a-abef-7e80-a175-185ae283cc0d",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
