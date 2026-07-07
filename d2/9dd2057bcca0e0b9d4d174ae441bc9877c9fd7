@@ -1,0 +1,23 @@
+skills/cosh-tech-design-writer/SKILL.md
+  s_fcd916eed2e637::t_bf5d8277db2a57 23,52,150
+skills/cosh-tech-design-writer/references/confirmation-question-rules.md
+  s_fcd916eed2e637::t_d77e9e7f1b1941 68-70,75-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "d29dd2057bcca0e0b9d4d174ae441bc9877c9fd7",
+  "prompts": {},
+  "sessions": {
+    "s_fcd916eed2e637": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3a8a-abef-7e80-a175-185ae283cc0d",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
