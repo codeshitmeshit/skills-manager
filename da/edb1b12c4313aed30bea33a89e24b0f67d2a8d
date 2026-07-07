@@ -1,0 +1,29 @@
+skills/cosh-tech-design-writer/SKILL.md
+  s_fcd916eed2e637::t_ba9204507a50f4 18,24-26,44-45,58-59,62-63,148-149,160-161
+skills/cosh-tech-design-writer/references/codebase-inspection-rules.md
+  s_fcd916eed2e637::t_3fbcc0d2fbb9b4 36-55
+skills/cosh-tech-design-writer/references/confirmation-question-rules.md
+  s_fcd916eed2e637::t_ca1382850b66f9 69-70
+skills/cosh-tech-design-writer/references/default-template.md
+  s_fcd916eed2e637::t_a03d79f4a3bb71 5-12
+skills/cosh-tech-design-writer/references/subagent-review-prompts.md
+  s_fcd916eed2e637::t_7200131542325f 7,11-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "daedb1b12c4313aed30bea33a89e24b0f67d2a8d",
+  "prompts": {},
+  "sessions": {
+    "s_fcd916eed2e637": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3a8a-abef-7e80-a175-185ae283cc0d",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
