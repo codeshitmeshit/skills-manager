@@ -1,0 +1,31 @@
+skills/cosh-tech-design-writer/SKILL.md
+  s_fcd916eed2e637::t_6aefdd7beb4b1c 3,18-20,22,31,39,51,56-59,65,70,86-88,91,97-98,127,140-143,148,150-151
+skills/cosh-tech-design-writer/references/code-change-implementation-rules.md
+  s_fcd916eed2e637::t_40876abbc5c126 1-72
+skills/cosh-tech-design-writer/references/codebase-inspection-rules.md
+  s_fcd916eed2e637::t_7dd4673b88fcdc 1-73
+skills/cosh-tech-design-writer/references/confirmation-question-rules.md
+  s_fcd916eed2e637::t_0fdf4723c86ab5 1-72
+skills/cosh-tech-design-writer/references/default-template.md
+  s_fcd916eed2e637::t_39111c0f2f5c9a 86-88,102,121-122,158-162
+skills/cosh-tech-design-writer/references/subagent-review-prompts.md
+  s_fcd916eed2e637::t_4b4b0218341326 1,5-106,130,145-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "c12b0001e29b871a98892742c045d41a8da8ef3a",
+  "prompts": {},
+  "sessions": {
+    "s_fcd916eed2e637": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3a8a-abef-7e80-a175-185ae283cc0d",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
