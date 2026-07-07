@@ -1,0 +1,4 @@
+interface:
+  display_name: "字节技术方案编写"
+  short_description: "按字节模板生成技术方案和独立评审问题文档"
+  default_prompt: "Use $cosh-tech-design-writer to turn my technical notes into a ByteDance-style technical design document and review issue document."
