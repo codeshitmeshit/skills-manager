@@ -1,0 +1,25 @@
+skills/cosh-tech-design-writer/SKILL.md
+  s_fcd916eed2e637::t_5c7f6d52872595 37,46,106-114,121,127,162,184-185
+skills/cosh-tech-design-writer/references/default-template.md
+  s_fcd916eed2e637::t_46e1c4b8389b54 98,117
+skills/cosh-tech-design-writer/references/subagent-review-prompts.md
+  s_fcd916eed2e637::t_68251d7dc7d031 9,157-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "b903aec692e515c3230f22c29aabff4793acf397",
+  "prompts": {},
+  "sessions": {
+    "s_fcd916eed2e637": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3a8a-abef-7e80-a175-185ae283cc0d",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
