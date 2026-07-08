@@ -1,4 +1,4 @@
 interface:
   display_name: "技术实现流程规划"
-  short_description: "读取技术方案和代码，生成调用图、预期变更图和开发计划"
-  default_prompt: "Use $cosh-tech-implementation-planner to analyze this technical proposal against the repository code, generate call and expected-change diagrams, and wait for approval before planning or editing."
+  short_description: "读取技术方案和代码，生成调用图、预期变更图、图片和开发计划"
+  default_prompt: "Use $cosh-tech-implementation-planner to analyze this technical proposal against the repository code, generate call diagrams, expected-change diagrams, and visualization images, then wait for approval before planning or editing."
