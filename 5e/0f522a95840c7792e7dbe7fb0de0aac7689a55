@@ -1,0 +1,21 @@
+skills/cosh-tech-implementation-planner/SKILL.md
+  s_235bf7dbd6f9c6::t_766151cc003f32 49-51,57-59,61-62,89-90,98,103,109,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5e0f522a95840c7792e7dbe7fb0de0aac7689a55",
+  "prompts": {},
+  "sessions": {
+    "s_235bf7dbd6f9c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3d0e-38c2-7eb2-b788-00cf7fbafd21",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
