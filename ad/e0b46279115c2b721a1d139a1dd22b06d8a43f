@@ -1,0 +1,23 @@
+skills/cosh-tech-implementation-planner/SKILL.md
+  s_235bf7dbd6f9c6::t_4126bedb3ee058 3,10,19-25,61-63,82-86,136
+skills/cosh-tech-implementation-planner/agents/openai.yaml
+  s_235bf7dbd6f9c6::t_8fe13530a6c37d 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ade0b46279115c2b721a1d139a1dd22b06d8a43f",
+  "prompts": {},
+  "sessions": {
+    "s_235bf7dbd6f9c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f3d0e-38c2-7eb2-b788-00cf7fbafd21",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
