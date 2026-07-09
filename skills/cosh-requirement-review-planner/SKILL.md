@@ -1,6 +1,6 @@
 ---
 name: cosh-requirement-review-planner
-description: 在产品需求澄清完成后，对需求和技术方案进行评审，必要时继续产品澄清并执行技术澄清；先生成并等待用户确认测试 checklist，再生成 todolist，并把进行中的 requirement.md、review.md、checklist.md、todolist.md 和 status.json 归档到 .cosh-docs/requirment/<需求名>/；标记为 done 后将整个需求目录移动到 .cosh-docs/requirment/archive/<需求名>/。用户要求方案评审、需求归档、断点续做、查看需求进度、从 checklist 推导开发测试或从 todolist 创建执行计划时使用。
+description: 在产品需求澄清完成后，对需求和技术方案进行 Review/评审，必要时继续产品澄清并执行技术澄清；先生成并等待用户确认测试 checklist，再生成 todolist，并把进行中的 requirement.md、review.md、checklist.md、todolist.md 和 status.json 归档到 .cosh-docs/requirment/<需求名>/；标记为 done 后将整个需求目录移动到 .cosh-docs/requirment/archive/<需求名>/。用户要求需求评审、方案 Review、技术方案评审、需求归档、断点续做、查看需求进度、从 checklist 推导开发测试或从 todolist 创建执行计划时使用。
 ---
 
 # 需求方案评审与执行规划
@@ -101,6 +101,7 @@ description: 在产品需求澄清完成后，对需求和技术方案进行评�
    - 记录需求背景、目标用户、目标、范围、非目标、关键约束和当前已知结论。
    - 如果产品信息仍不足，调用或建议使用 `cosh-product-clarifier` 继续产品澄清；不要进入方案评审。
 3. 做方案评审并写入 `review.md`。
+   - 评审技术方案或复杂需求前，必须先读取 [`references/technical-review-rubric.md`](references/technical-review-rubric.md)，并按其中的评审框架生成 `review.md`。
    - 先检查产品层面是否仍有歧义。
    - 再做技术澄清，检查架构、接口、数据、权限、状态流、异常处理、兼容性、迁移、性能、安全、可观测性和测试可行性。
    - 如果存在阻塞性技术问题，列出问题和建议选项，等待用户补充；不要生成 checklist。
