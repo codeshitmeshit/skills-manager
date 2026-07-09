@@ -1,0 +1,23 @@
+skills/cosh-requirement-review-planner/SKILL.md
+  s_7b0a6a5c51c7cd::t_86bb555b884e54 3,104
+skills/cosh-requirement-review-planner/references/technical-review-rubric.md
+  s_7b0a6a5c51c7cd::t_523be58c0d9798 1-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c24fe11877f1e4c3b02dc4a113f5d16deb201561",
+  "prompts": {},
+  "sessions": {
+    "s_7b0a6a5c51c7cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4618-9a1c-7eb3-978b-30bd5d31bc98",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
