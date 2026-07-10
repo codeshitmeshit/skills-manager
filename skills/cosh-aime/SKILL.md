@@ -1,6 +1,6 @@
 ---
 name: cosh-aime
-description: 当用户要求“让 AIME”“问 AIME”“用 AIME”完成 AI 对话、空间或会话查询、发送文本或本地附件、获取回复，或使用 AIME DeepWiki 生成和读取仓库文档时使用。
+description: 当用户明确要求“让 AIME”“问 AIME”“用 AIME”完成 AI 对话、空间或会话查询、发送文本或本地附件、获取回复，或使用 AIME DeepWiki 生成和读取仓库文档时使用。用户明确提到 coco 时不得使用本 skill；Coco 是独立 CLI，即使其模型或插件名称包含 AIME 也不属于 AIME 请求。
 ---
 
 # AIME 任务
@@ -8,6 +8,8 @@ description: 当用户要求“让 AIME”“问 AIME”“用 AIME”完成 AI 
 ## 目标
 
 通过 `bytedcli aime` 实际完成用户交给 AIME 的任务，并把结果整理后返回。不要只给出命令教程。
+
+用户明确提到 `coco`、要求“让 coco”或“用 coco”时，不得使用本 skill，也不得使用 `bytedcli aime` 代替 Coco；应交给独立的 `cosh-coco` skill。
 
 ## 工作流
 

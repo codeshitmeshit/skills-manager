@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coco 助手"
+  short_description: "调用本机 Coco CLI 执行代码分析与修改任务"
+  default_prompt: "Use $cosh-coco to ask Coco to complete this task in the current working directory."
