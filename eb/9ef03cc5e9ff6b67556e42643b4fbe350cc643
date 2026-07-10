@@ -1,0 +1,25 @@
+docs/superpowers/specs/2026-07-10-cosh-aime-design.md
+  s_b7d6e5cce9b2a3::t_25e9efe7949efb 1-25
+skills/cosh-aime/SKILL.md
+  s_b7d6e5cce9b2a3::t_8e891745a4050e 1-56
+skills/cosh-aime/agents/openai.yaml
+  s_b7d6e5cce9b2a3::t_0fb17635bc79a2 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "eb9ef03cc5e9ff6b67556e42643b4fbe350cc643",
+  "prompts": {},
+  "sessions": {
+    "s_b7d6e5cce9b2a3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4af7-0c55-79e3-bc75-d992c1f122cc",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
