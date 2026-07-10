@@ -6,11 +6,11 @@
 
 所有路线追加：
 
-> 只读评审隔离材料。禁止访问原仓库、修改文件、创建提交、切换分支、联网发送代码或 push。只报告能由材料证明的问题。每项包含严重程度、文件与行号、证据、影响和修复方向；将未证实疑点和风格偏好单列。无问题时说明检查范围。
+> 只读评审隔离材料。禁止访问原仓库、修改文件、创建提交、切换分支或 push。除 Coco runner 可向公司内网 Coco 发送最小必要评审材料外，禁止向 AIME、互联网服务或其他未授权目标发送代码。只报告能由材料证明的问题。每项包含严重程度、文件与行号、证据、影响和修复方向；将未证实疑点和风格偏好单列。无问题时说明检查范围。
 
 ## Coco runner
 
-在 `REVIEW_BUNDLE_PATH` 中按 `cosh-coco` 安全规则调用 Coco。只向 Coco 发送 `Coco reviewer` prompt、通用只读约束和隔离目录内材料说明；不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt完成评审。最终说明实际使用 Coco 还是 fallback。
+在 `REVIEW_BUNDLE_PATH` 中按 `cosh-coco` 安全规则调用公司内网 Coco。允许向 Coco 发送最小必要评审材料；只发送 `Coco reviewer` prompt、通用只读约束和隔离目录内材料说明，不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt 完成评审。最终说明实际使用 Coco 还是 fallback。
 
 ## Coco reviewer
 

@@ -30,7 +30,7 @@ description: 当用户要求 push、推送、上传当前分支代码到远端�
    - Correctness reviewer：检查逻辑、边界、失败路径和兼容性。
    - Security reviewer：检查安全边界、数据风险、竞态和失败关闭。
    - Consistency reviewer：专门核对注释、文档、命名、用户提示与实际实现。
-8. 主执行者不得直接调用 Coco，不得调用 AIME。受并发槽位限制时分批运行，但必须获得四个独立 subagent 的有效结果。每路禁止修改材料、提交、切换分支、联网发送代码或 push。
+8. 主执行者不得直接调用 Coco，不得调用 AIME。受并发槽位限制时分批运行，但必须获得四个独立 subagent 的有效结果。Coco runner 可以把最小必要评审材料发送给公司内网 Coco；除此之外，所有路线都禁止向 AIME、互联网服务或其他未授权目标发送代码。每路禁止修改材料、提交、切换分支或 push。
 9. 收集结果。超时、空泛结论、未检查实际 diff 或修改材料均视为无效；Coco 路线 fallback 后仍无效，或任一路缺失时，不同意 push。完成后删除临时材料目录。
 10. 主执行者在原仓库只读核验每条意见，合并重复项。证据充分的缺陷、安全/数据风险、明确注释实现不一致为阻断问题；风格偏好、未证实疑点和可选优化为非阻断建议。
 11. push 前再次 fetch，并验证 `HEAD_SHA`、待推送 commit 集合、目标 remote URL、目标 ref 存在状态及 `REMOTE_SHA` 都与评审时一致；任何变化都使结论失效并触发完整重评。
@@ -52,6 +52,7 @@ description: 当用户要求 push、推送、上传当前分支代码到远端�
 ## 质量检查
 
 - 四路由四个独立 Codex subagent 完成；只由 Coco runner 调用 Coco，完全不调用 AIME。
+- 只允许 Coco runner 向公司内网 Coco 发送最小必要材料；禁止发送到 AIME、互联网服务或其他未授权目标。
 - subagent 只能看到隔离材料和本路线 prompt，不能访问原仓库、`.git`、其他 prompt 或意见。
 - 普通 push 审查本地新增 commits；强推还审查将删除的远端 commits 与覆盖净变化。
 - 每一路检查真实 diff；主执行者核验并去重，不以投票覆盖成立问题。
