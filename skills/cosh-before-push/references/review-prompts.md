@@ -2,19 +2,28 @@
 
 ## 通用上下文
 
-向每位评审者分别提供以下变量，不附带其他评审者的结果：
+按路线选择性提供以下必要变量，不附带其他评审者的 prompt 或结果：
 
 - `REPO_PATH`：仓库绝对路径
 - `BASE_REF`：比较基线
+- `DIFF_BASE`：`BASE_REF` 与 `HEAD_SHA` 的 merge base
 - `HEAD_SHA`：评审开始时的 HEAD
 - `COMMIT_RANGE`：例如 `origin/main..HEAD`
 - `COMMIT_LIST`：待推送 commit 列表
 - `CHANGED_FILES`：变更文件列表
-- `DIFF`：完整 diff；内容过长时允许评审者在仓库内只读执行 `git diff BASE_REF HEAD_SHA`。必须使用两点端点 diff，不得改用三点 merge-base diff
+- `DIFF`：`git diff DIFF_BASE HEAD_SHA` 的完整结果；内容过长时允许评审者在仓库内只读执行同一命令。四路必须使用同一 `DIFF_BASE`，不得直接用已分叉的 `BASE_REF` 生成端点 diff
 
 所有 prompt 末尾追加以下约束：
 
 > 这是只读代码评审。禁止修改文件、创建提交、切换分支或 push。只报告能够由待推送 diff 和仓库上下文证明的问题。每个问题必须包含严重程度、文件与行号、证据、可能影响和修复方向。将无法证实的疑点单列，不要把代码风格偏好当作缺陷。若未发现问题，明确说明检查过的范围和结论。
+
+## Coco runner subagent
+
+你负责本次四路 CR 中的 Coco 路线。只读取所给仓库和 commit 范围，按 `cosh-coco` 的安全规则确认并调用本机 Coco。发送给 Coco 的消息只能由“Coco reviewer”段落、通用只读约束、`REPO_PATH`、`BASE_REF`、`DIFF_BASE`、`HEAD_SHA`、`COMMIT_RANGE`，以及命令 `git diff DIFF_BASE HEAD_SHA` 组成；不要发送整个 before-push skill、完整 prompts reference、其他路线 prompt 或其他评审结果。Coco 不存在或结果无效时，不调用 AIME，改用 `fallback-correctness reviewer` prompt 由你自己完成只读评审。最终说明实际使用 Coco 还是 fallback。
+
+## AIME runner subagent
+
+你负责本次四路 CR 中的 AIME 路线。只读取所给仓库和 commit 范围，按 `cosh-aime` 的规则调用 AIME 并等待完整结果。由于 AIME 不能直接读取本地仓库，发送给 AIME 的消息只能由“AIME reviewer”段落、通用只读约束、commit 列表、变更文件和 `git diff DIFF_BASE HEAD_SHA` 的结果组成；不要发送整个 before-push skill、完整 prompts reference、其他路线 prompt、未变更文件或其他评审结果。AIME 不存在、鉴权失败或结果无效时，不调用 Coco，改用 `fallback-security reviewer` prompt 由你自己完成只读评审。最终说明实际使用 AIME 还是 fallback。
 
 ## Coco reviewer
 
@@ -34,7 +43,7 @@
 
 ## fallback-correctness reviewer
 
-当 Coco 不可用时使用。以资深维护者视角审查 `COMMIT_RANGE`，重点追踪业务行为和回归风险：调用链是否仍成立、错误是否被吞掉、默认行为是否改变、边界条件是否遗漏、测试是否真正验证行为，以及注释或文档是否错误描述实现。为每个问题给出可触发的具体场景。
+当 Coco 不可用时使用。以资深维护者视角做综合审查，重点追踪业务行为、回归风险和安全边界：调用链是否仍成立、错误是否被吞掉、默认行为是否改变、边界条件是否遗漏、输入与权限检查是否退化、敏感信息是否暴露、测试是否真正验证行为，以及注释或文档是否错误描述实现。为每个问题给出可触发的具体场景。
 
 ## fallback-security reviewer
 

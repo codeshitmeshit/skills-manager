@@ -1,4 +1,4 @@
 interface:
   display_name: "Before Push Review"
   short_description: "对待推送 commits 执行四路独立代码评审并给出门禁结论"
-  default_prompt: "Use $cosh-before-push to review all local commits before pushing the current branch."
+  default_prompt: "Use $cosh-before-push to review the commits that would be sent to the target branch before pushing."
