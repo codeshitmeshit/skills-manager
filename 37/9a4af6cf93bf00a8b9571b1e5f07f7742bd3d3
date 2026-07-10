@@ -1,0 +1,29 @@
+docs/superpowers/specs/2026-07-10-openspec-requirement-review-planner-design.md
+  s_aef7dc874607e3::t_ca32624d347fa4 1-139
+skills/cosh-requirement-review-planner/SKILL.md
+  s_aef7dc874607e3::t_4db3e56f900a18 3,6,10-30,34-93,97-101,107-115
+skills/cosh-requirement-review-planner/agents/openai.yaml
+  s_aef7dc874607e3::t_884f1b2f7f97dc 2-4
+skills/cosh-requirement-review-planner/references/openspec-workflow.md
+  s_aef7dc874607e3::t_45292ddd63d5dd 1-64
+tests/test_requirement_review_planner_skill.py
+  s_aef7dc874607e3::t_8e84007f89c653 3-4,7-8,11-17,20-62,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "379a4af6cf93bf00a8b9571b1e5f07f7742bd3d3",
+  "prompts": {},
+  "sessions": {
+    "s_aef7dc874607e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4a38-d419-7841-952b-c44875409822",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
