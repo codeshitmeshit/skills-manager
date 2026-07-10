@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIME 助手"
+  short_description: "调用 AIME 完成对话、附件分析与 DeepWiki 任务"
+  default_prompt: "Use $cosh-aime to ask AIME to analyze my request and return the result."
