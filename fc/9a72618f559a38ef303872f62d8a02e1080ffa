@@ -1,0 +1,27 @@
+skills/cosh-aime/SKILL.md
+  s_38c7f40bb35dcb::t_907b29a8e7579b 3,12-13
+skills/cosh-coco/SKILL.md
+  s_38c7f40bb35dcb::t_ce51ba179f63d3 1-32
+skills/cosh-coco/agents/openai.yaml
+  s_38c7f40bb35dcb::t_3cc3fe03f414be 1-4
+tests/test_coco_skill.py
+  s_38c7f40bb35dcb::t_82272369e9c482 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fc9a72618f559a38ef303872f62d8a02e1080ffa",
+  "prompts": {},
+  "sessions": {
+    "s_38c7f40bb35dcb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4b05-8db0-7f20-b5f6-dcad238380ed",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
