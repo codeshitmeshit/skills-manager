@@ -1,0 +1,25 @@
+skills/cosh-before-push/SKILL.md
+  s_d66d1fdc6d385b::t_9e0da9d19ffe9a 3,14,18,24,27-33,40-42,49,63-64,68,70
+skills/cosh-before-push/agents/openai.yaml
+  s_d66d1fdc6d385b::t_cbcbd56a7222f9 4
+skills/cosh-before-push/references/review-prompts.md
+  s_d66d1fdc6d385b::t_d0b9fbc88815ef 5,9,14,20-27,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d466751a57403474e2bfe3f9430d6cabe4d806ba",
+  "prompts": {},
+  "sessions": {
+    "s_d66d1fdc6d385b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4bb1-caf4-7d31-81db-19f3aec12187",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
