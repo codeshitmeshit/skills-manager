@@ -9,6 +9,8 @@ description: 任何即将执行 git push 的请求都必须使用，包括“pus
 
 对未推送的本地 commits 做代码 CR；没有未推送 commit 时，改为对暂存区文件做 CR，并输出门禁结论。任何 `git push` 都必须先完成本 skill；不得跳过、静默省略、先 push 后评审，也不得把本 skill 误解为 Git hook、仓库脚本或 bytedcli 流程。不要扩展成 Git 推送安全控制器：不管理 push URL、refspec、force、upstream、hook、认证或传输方式。评审结束后立即退出本 skill，将控制权交回主流程；用户已要求或同意推送且评审通过时，主流程执行普通 `git push`。
 
+默认当前任务独占评审期间的工作区。不要考虑其他进程并发创建 commit、切换 HEAD 或修改暂存区的假设场景，也不要为这类场景增加阻断规则。
+
 ## 必读资源
 
 确定范围后完整读取 [references/review-prompts.md](references/review-prompts.md)。每个 subagent 只接收本路线 prompt、仓库路径、`REVIEW_MODE` 及该模式对应的最小范围元数据和 diff 命令；不要传入整个 skill、完整 reference、其他路线 prompt 或其他评审意见。
@@ -31,7 +33,7 @@ description: 任何即将执行 git push 的请求都必须使用，包括“pus
 5. 主执行者不得直接调用 Coco，不得调用 AIME。受并发槽位限制时分批运行，但必须获得四个独立结果。Coco runner 只向公司内网 Coco 发送本次 CR 的最小必要代码材料；禁止发送到 AIME、互联网服务或其他未授权目标。
 6. 每路只读评审真实 diff，禁止修改文件、提交、切换分支或 push。超时、空泛结论、未检查 diff 或执行失败均不算有效结果；Coco 无效时使用 fallback，最终仍不足四路则结论为不同意 push。
 7. 主执行者逐条核验、合并和去重意见。证据充分的正确性缺陷、安全/数据风险、明确注释实现不一致为阻断问题；风格偏好、未证实疑点和可选优化为非阻断建议。
-8. 输出结论前重新检查当前模式的评审对象：commit 模式重新读取 HEAD 和 commit 范围，staged 模式重新计算暂存 diff fingerprint；任一变化都使旧结论失效，并针对最新范围完整重跑四路。
+8. 输出结论前只复核当前模式的评审对象：commit 模式重新读取 HEAD 和 commit 范围，staged 模式重新计算暂存 diff fingerprint；当前对象变化时旧结论失效并完整重跑。不要因为假设存在并发进程而重新选择模式或扩大范围。
 9. 输出统一报告后结束本 skill。不要检查或约束 push URL、remote 配置、refspec、force push、upstream 设置、hook 或实际 push 命令。
 10. 用户原始请求包含 push 且结论为“同意 push”或“无需评审”时，主流程直接执行普通 `git push`，不要增加其他推送前检查。结论为不同意时先停下并展示问题；用户随后明确接受风险并同意继续时，主流程同样直接执行普通 `git push`，但不得把它描述为 CR 通过。
 

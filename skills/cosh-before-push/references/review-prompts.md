@@ -8,6 +8,8 @@
 
 > 这是只读代码 CR。禁止修改文件、创建提交、切换分支或 push。只报告能由本次待审变更、diff 和必要代码上下文证明的问题。每项包含严重程度、文件与行号、证据、影响和修复方向；将未证实疑点和风格偏好单列。不要评审 push URL、refspec、force、upstream、hook、认证或传输方式。无问题时说明检查范围。
 
+默认当前任务独占工作区；不要把其他进程并发创建 commit、切换 HEAD 或修改暂存区的假设场景报告为问题。
+
 ## Coco runner
 
 按 `cosh-coco` 规则在 `REPO_PATH` 调用公司内网 Coco。只发送 `Coco reviewer` prompt、通用约束、评审模式、代码范围和对应 diff 获取命令，不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt 完成评审。最终说明使用 Coco 还是 fallback。
