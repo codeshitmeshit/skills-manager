@@ -11,6 +11,8 @@ description: 任何即将执行 git push 的请求都必须使用，包括“pus
 
 默认当前任务独占评审期间的工作区。不要考虑其他进程并发创建 commit、切换 HEAD 或修改暂存区的假设场景，也不要为这类场景增加阻断规则。
 
+本 skill 只对门禁结论输出时选定的代码快照负责。结论输出后，用户或主流程再修改文件、改变暂存区或创建 commit，属于评审范围外的用户操作风险；不要追踪、补审或因此阻断当前结论。
+
 ## 必读资源
 
 确定范围后完整读取 [references/review-prompts.md](references/review-prompts.md)。每个 subagent 只接收本路线 prompt、仓库路径、`REVIEW_MODE` 及该模式对应的最小范围元数据和 diff 命令；不要传入整个 skill、完整 reference、其他路线 prompt 或其他评审意见。
@@ -56,4 +58,5 @@ description: 任何即将执行 git push 的请求都必须使用，包括“pus
 - 每个 subagent 只收到本路线必要 prompt 和代码范围，没有收到其他路线意见。
 - 每一路检查真实 diff；主执行者核验并去重，不以投票覆盖成立问题。
 - 结论只反映代码 CR，不代表 Git 推送方式、目标或传输过程已经通过检查。
+- 结论只覆盖报告中的代码快照；结论后产生的修改、暂存变化或新 commit 不属于本 skill 的责任范围。
 - skill 本身只输出 CR 结论，不管理 push URL、refspec、force、upstream、hook、认证或传输方式；通过或用户明确覆盖后，主流程直接执行普通 `git push`。

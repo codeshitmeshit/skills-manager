@@ -10,6 +10,8 @@
 
 默认当前任务独占工作区；不要把其他进程并发创建 commit、切换 HEAD 或修改暂存区的假设场景报告为问题。
 
+评审只对当前提供的代码快照负责；不要把结论输出后用户或主流程可能修改、暂存或创建 commit 的行为报告为问题。
+
 ## Coco runner
 
 按 `cosh-coco` 规则在 `REPO_PATH` 调用公司内网 Coco。只发送 `Coco reviewer` prompt、通用约束、评审模式、代码范围和对应 diff 获取命令，不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt 完成评审。最终说明使用 Coco 还是 fallback。
