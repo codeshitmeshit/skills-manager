@@ -1,4 +1,4 @@
 interface:
   display_name: "Before Push Review"
   short_description: "优先评审未推送 commits，无 commits 时评审暂存区文件"
-  default_prompt: "Use $cosh-before-push to review unpushed commits, or staged files when no unpushed commits exist, before pushing."
+  default_prompt: "Use $cosh-before-push to review unpushed commits, or staged files when none exist, then wait for my final confirmation before pushing."
