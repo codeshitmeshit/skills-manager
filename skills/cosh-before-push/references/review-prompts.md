@@ -2,7 +2,7 @@
 
 ## 通用约束
 
-每路只提供 `REPO_PATH`、`BASE_REF`、`DIFF_BASE`、`HEAD_SHA`、`COMMIT_RANGE`、本路线 prompt，以及只读命令 `git diff DIFF_BASE HEAD_SHA`。
+每路只提供 `REPO_PATH`、`REVIEW_MODE=combined`、本路线 prompt，以及两部分必要上下文：commits 部分提供 `BASE_REF`、`DIFF_BASE`、`HEAD_SHA`、`COMMIT_RANGE` 和 `git diff DIFF_BASE HEAD_SHA`；staged 部分提供暂存 diff fingerprint 和 `git diff --cached`。任一部分为空时明确标记为空，不得因此省略另一部分。
 
 追加以下约束：
 
@@ -10,7 +10,7 @@
 
 ## Coco runner
 
-按 `cosh-coco` 规则在 `REPO_PATH` 调用公司内网 Coco。只发送 `Coco reviewer` prompt、通用约束、commit 范围和 diff 获取命令，不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt 完成评审。最终说明使用 Coco 还是 fallback。
+按 `cosh-coco` 规则在 `REPO_PATH` 调用公司内网 Coco。只发送 `Coco reviewer` prompt、通用约束、评审模式、代码范围和对应 diff 获取命令，不要发送整个 before-push skill、完整 reference 或其他路线内容。Coco 不存在或结果无效时，不调用其他外部服务，由你使用 `Coco fallback` prompt 完成评审。最终说明使用 Coco 还是 fallback。
 
 ## Coco reviewer
 

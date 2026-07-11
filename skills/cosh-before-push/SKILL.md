@@ -1,13 +1,13 @@
 ---
 name: cosh-before-push
-description: 当用户要求 push、推送代码，或要求执行 push 前代码评审、检查未推送 commits、判断代码是否适合推送时使用。只对待推送的本地 commits 运行 Coco、正确性、安全性、注释实现一致性四路独立 CR，输出问题清单和是否同意 push 的代码评审结论；不调用 AIME，不管理具体 Git push 方式，评审通过或用户明确接受风险后由主流程直接执行普通 git push。
+description: 任何即将执行 git push 的请求都必须使用，包括“push”“推送”“推送吧”“直接推”“提交并推送”“同步到远端”等表达；也用于单独要求 push 前 CR、检查未推送 commits、暂存文件或判断代码是否适合推送。必须在 git push 之前对未推送 commits 与暂存区文件的并集完成 Coco、正确性、安全性、注释实现一致性四路独立 CR。禁止先 push 后补评审；不调用 AIME，不管理具体 Git push 方式。
 ---
 
 # Push 前四路代码评审
 
 ## 目标
 
-只对待推送的本地 commits 做代码 CR，并输出门禁结论。不要把本 skill 扩展成 Git 推送安全控制器：不管理 push URL、refspec、force、upstream、hook、认证或传输方式。评审结束后立即退出本 skill，将控制权交回主流程；用户已要求或同意推送且评审通过时，主流程直接执行普通 `git push`。
+只对待推送的本地 commits 做代码 CR，并输出门禁结论。任何 `git push` 都必须先完成本 skill；不得跳过、静默省略、先 push 后评审，也不得把本 skill 误解为 Git hook、仓库脚本或 bytedcli 流程。不要扩展成 Git 推送安全控制器：不管理 push URL、refspec、force、upstream、hook、认证或传输方式。评审结束后立即退出本 skill，将控制权交回主流程；用户已要求或同意推送且评审通过时，主流程执行普通 `git push`。
 
 ## 必读资源
 
@@ -18,8 +18,10 @@ description: 当用户要求 push、推送代码，或要求执行 push 前代�
 1. 只读检查当前分支、HEAD 和 upstream，确定本地尚未推送的 commit 范围：
    - upstream 存在：使用 `<upstream>..HEAD`。
    - upstream 不存在：使用远端默认主分支作为比较基线；无法可靠识别时要求用户指定评审基线。
-2. 计算 `DIFF_BASE=$(git merge-base <BASE_REF> <HEAD_SHA>)`，四路统一审查 `<BASE_REF>..<HEAD_SHA>` 的 commit 列表和 `git diff <DIFF_BASE> <HEAD_SHA>`。
-3. 范围为空时输出“无需评审：没有待推送的本地 commits”并结束。未提交、未跟踪内容不属于本次 CR，只在报告中提示。
+2. 设置 `REVIEW_MODE=combined`，同时收集两部分评审材料：
+   - commits 部分：计算 `DIFF_BASE=$(git merge-base <BASE_REF> <HEAD_SHA>)`，收集 `<BASE_REF>..<HEAD_SHA>` 的 commit 列表和 `git diff <DIFF_BASE> <HEAD_SHA>`；范围为空时保留为空。
+   - staged 部分：收集 `git diff --cached` 并记录暂存 diff fingerprint；暂存区为空时保留为空。
+3. 四路统一审查 commits 与 staged 两部分的并集。任一部分非空就执行 CR；两者都为空时输出“无需评审：没有未推送 commits 或暂存文件”并结束。未暂存和未跟踪内容不属于本次 CR，只在报告中提示。
 4. 创建四个相互独立的 Codex subagent：
    - Coco runner：按 `cosh-coco` 规则调用公司内网 Coco；Coco 无效时由该 subagent 使用综合 fallback prompt。
    - Correctness reviewer：检查逻辑、边界、失败路径和兼容性。
@@ -28,7 +30,7 @@ description: 当用户要求 push、推送代码，或要求执行 push 前代�
 5. 主执行者不得直接调用 Coco，不得调用 AIME。受并发槽位限制时分批运行，但必须获得四个独立结果。Coco runner 只向公司内网 Coco 发送本次 CR 的最小必要代码材料；禁止发送到 AIME、互联网服务或其他未授权目标。
 6. 每路只读评审真实 diff，禁止修改文件、提交、切换分支或 push。超时、空泛结论、未检查 diff 或执行失败均不算有效结果；Coco 无效时使用 fallback，最终仍不足四路则结论为不同意 push。
 7. 主执行者逐条核验、合并和去重意见。证据充分的正确性缺陷、安全/数据风险、明确注释实现不一致为阻断问题；风格偏好、未证实疑点和可选优化为非阻断建议。
-8. 输出结论前重新读取 HEAD 和 commit 范围；代码范围变化时旧结论失效，针对最新范围完整重跑四路。
+8. 输出结论前同时重新读取 HEAD、commit 范围和暂存 diff fingerprint；任一部分发生变化都使旧结论失效，并针对最新并集完整重跑四路。
 9. 输出统一报告后结束本 skill。不要检查或约束 push URL、remote 配置、refspec、force push、upstream 设置、hook 或实际 push 命令。
 10. 用户原始请求包含 push 且结论为“同意 push”或“无需评审”时，主流程直接执行普通 `git push`，不要增加其他推送前检查。结论为不同意时先停下并展示问题；用户随后明确接受风险并同意继续时，主流程同样直接执行普通 `git push`，但不得把它描述为 CR 通过。
 
@@ -36,15 +38,17 @@ description: 当用户要求 push、推送代码，或要求执行 push 前代�
 
 依次输出：
 
-1. `审查范围`：BASE_REF、DIFF_BASE、HEAD_SHA、commit 列表、文件数，以及未提交内容提示。
+1. `审查范围`：REVIEW_MODE=combined；列出 BASE_REF、DIFF_BASE、HEAD_SHA、未推送 commits、commit diff 文件数、暂存 diff fingerprint、暂存文件数，以及未暂存/未跟踪内容提示。
 2. `评审状态`：四个 subagent 的完成状态；Coco runner 标明 Coco 或 fallback。
 3. `阻断问题`：严重程度、文件与行号、证据、影响和修复方向；无则写“无”。
 4. `非阻断建议`：无则写“无”。
-5. `结论`：仅使用“同意 push”“不同意 push：存在阻断问题”“不同意 push：四路评审不完整”“用户接受风险并继续 push”或“无需评审：没有待推送的本地 commits”。
+5. `结论`：仅使用“同意 push”“不同意 push：存在阻断问题”“不同意 push：四路评审不完整”“用户接受风险并继续 push”或“无需评审：没有未推送 commits 或暂存文件”。
 
 ## 质量检查
 
-- 只审查待推送的本地 commits，不评审未提交内容或远端独有 commits。
+- 实际 `git push` 之前已经显式运行本 skill，并在最终回复中展示四路评审状态和门禁结论；不能仅在内部声称已检查。
+- 没有把本 skill 当作 Git hook、项目脚本或其他工具流程，也没有先 push 后补评审。
+- 每次同时审查待推送的本地 commits 和暂存区文件；未暂存、未跟踪和远端独有内容不在范围内。
 - 四路由四个独立 Codex subagent 完成；一路使用 Coco，另外三路使用 Codex；完全不调用 AIME。
 - 每个 subagent 只收到本路线必要 prompt 和代码范围，没有收到其他路线意见。
 - 每一路检查真实 diff；主执行者核验并去重，不以投票覆盖成立问题。

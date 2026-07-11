@@ -2,6 +2,16 @@
 
 本文档定义在本仓库新增或更新 skill 时的统一规范。目标是让每个 skill 都有清晰触发条件、低上下文成本、可复用资源和可验证的产出。
 
+## Push 前强制门禁
+
+- 用户提出 push、推送、同步到远端或任何会执行 `git push` 的请求时，必须先调用 `$cosh-before-push`；“推送吧”“直接推”“提交并推送”等简短表达同样触发。
+- 不得把 `$cosh-before-push` 理解为 Git hook、仓库脚本或 bytedcli 流程，也不得先执行 `git push` 再补做评审。
+- 门禁必须完成 Coco runner、正确性、安全性、注释实现一致性四路 CR，并由主执行者汇总结论。
+- 每次都同时评审尚未推送的 commits 和暂存区文件；任一非空就执行四路 CR，两者都为空时才返回无需评审。
+- 结论为“同意 push”或“无需评审”时，按用户原始请求直接执行普通 `git push`。
+- 结论为不同意时不得 push；先展示问题。只有用户在看到问题后明确接受风险并要求继续，才允许执行普通 `git push`，且不得声称 CR 通过。
+- 本门禁只约束代码 CR，不扩展检查 push URL、refspec、force、upstream、hook、认证或传输方式。
+
 ## 基本原则
 
 - 默认在 `skills/cosh-<skill-name>/` 下创建 skill，目录名必须和 frontmatter 的 `name` 完全一致。
