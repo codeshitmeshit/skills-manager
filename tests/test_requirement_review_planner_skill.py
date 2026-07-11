@@ -35,6 +35,27 @@ class RequirementReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("立即暂停编码", self.skill)
         self.assertIn("重新确认", self.skill)
 
+    def test_implementation_defaults_to_one_task_at_a_time(self) -> None:
+        self.assertIn("默认一次只实现一个", self.skill)
+        self.assertIn("不能视为批量授权", self.skill)
+        self.assertIn("等待用户确认继续下一个任务", self.skill)
+
+    def test_each_task_requires_review_and_commit_confirmation(self) -> None:
+        self.assertIn("等待用户 CR", self.skill)
+        self.assertIn("CR 通过并明确同意提交", self.skill)
+        self.assertIn("commit 成功后", self.skill)
+
+    def test_batch_implementation_requires_explicit_authorization(self) -> None:
+        self.assertIn("一次全部实现", self.skill)
+        self.assertIn("批量实现", self.skill)
+        self.assertIn("明确授权", self.skill)
+        self.assertIn("不得自行推断", self.workflow)
+
+    def test_task_state_updates_only_after_commit(self) -> None:
+        self.assertIn("提交成功后", self.workflow)
+        self.assertIn("更新对应 OpenSpec task 状态", self.workflow)
+        self.assertIn("未提交", self.workflow)
+
     def test_missing_openspec_is_announced_then_prepared(self) -> None:
         self.assertIn("先告知用户", self.workflow)
         self.assertIn("安装", self.workflow)
