@@ -2,11 +2,11 @@
 
 ## 通用约束
 
-每路只提供 `REPO_PATH`、`REVIEW_MODE=combined`、本路线 prompt，以及两部分必要上下文：commits 部分提供 `BASE_REF`、`DIFF_BASE`、`HEAD_SHA`、`COMMIT_RANGE` 和 `git diff DIFF_BASE HEAD_SHA`；staged 部分提供暂存 diff fingerprint 和 `git diff --cached`。任一部分为空时明确标记为空，不得因此省略另一部分。
+每路只提供 `REPO_PATH`、`REVIEW_MODE`、本路线 prompt 和当前模式的必要上下文。commit 模式提供 `BASE_REF`、`DIFF_BASE`、`HEAD_SHA`、`COMMIT_RANGE` 和 `git diff DIFF_BASE HEAD_SHA`；staged 模式提供 `git diff --cached --binary` 的 SHA-256 fingerprint 和 `git diff --cached`。不得混合两个模式。
 
 追加以下约束：
 
-> 这是只读代码 CR。禁止修改文件、创建提交、切换分支或 push。只报告能由待审 commits、diff 和必要代码上下文证明的问题。每项包含严重程度、文件与行号、证据、影响和修复方向；将未证实疑点和风格偏好单列。不要评审 push URL、refspec、force、upstream、hook、认证或传输方式。无问题时说明检查范围。
+> 这是只读代码 CR。禁止修改文件、创建提交、切换分支或 push。只报告能由本次待审变更、diff 和必要代码上下文证明的问题。每项包含严重程度、文件与行号、证据、影响和修复方向；将未证实疑点和风格偏好单列。不要评审 push URL、refspec、force、upstream、hook、认证或传输方式。无问题时说明检查范围。
 
 ## Coco runner
 
@@ -22,7 +22,7 @@
 
 ## Correctness reviewer
 
-沿变更调用链检查前置条件、返回值、状态转换、边界值、异常路径、兼容性和测试断言。只报告本次待审 commits 新增且具有充分证据的错误行为。
+沿变更调用链检查前置条件、返回值、状态转换、边界值、异常路径、兼容性和测试断言。只报告本次待审变更新增且具有充分证据的错误行为。
 
 ## Security reviewer
 
@@ -35,7 +35,7 @@
 ## 主执行者核验
 
 1. 在待审 SHA 和必要代码上下文中确认位置与可达路径。
-2. 判断问题是否由本次待审 commits 新增或显著放大。
+2. 判断问题是否由本次待审变更新增或显著放大。
 3. 合并根因相同的问题并注明发现路线。
 4. 将成立的正确性、安全、数据和明确一致性问题列为阻断。
 5. 将风格、可选重构和无失败场景推测列为非阻断建议或删除。
