@@ -1,0 +1,25 @@
+skills/cosh-requirement-review-planner/SKILL.md
+  s_aef7dc874607e3::t_0aaaf78b2cd2b4 32-44,68-71,108,127
+skills/cosh-requirement-review-planner/references/openspec-workflow.md
+  s_aef7dc874607e3::t_df1da84ef134bb 40-51
+tests/test_requirement_review_planner_skill.py
+  s_aef7dc874607e3::t_01158762c6403b 38-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2cdc2b74155a0d852ee41cd4220b335e9f6c717e",
+  "prompts": {},
+  "sessions": {
+    "s_aef7dc874607e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4a38-d419-7841-952b-c44875409822",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
