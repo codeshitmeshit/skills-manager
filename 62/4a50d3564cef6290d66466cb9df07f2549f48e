@@ -1,0 +1,23 @@
+AGENTS.md
+  s_d66d1fdc6d385b::t_7fe7950213c200 16-17
+skills/cosh-before-push/SKILL.md
+  s_d66d1fdc6d385b::t_53bea1ab078b4f 28,40-41,51,57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "624a50d3564cef6290d66466cb9df07f2549f48e",
+  "prompts": {},
+  "sessions": {
+    "s_d66d1fdc6d385b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4bb1-caf4-7d31-81db-19f3aec12187",
+        "model": "unknown"
+      },
+      "human_author": "codeshitmeshit <codeshitmehsit@126.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
