@@ -1,4 +1,4 @@
 interface:
   display_name: "字节技术方案编写"
-  short_description: "生成字节技术方案、评审问题文档和飞书图表图片"
-  default_prompt: "Use $cosh-tech-design-writer to turn my technical notes into a ByteDance-style technical design document, review issue document, and Feishu-ready diagram images."
+  short_description: "生成字节技术方案、评审问题文档和飞书图表/画板"
+  default_prompt: "Use $cosh-tech-design-writer to turn my technical notes into a ByteDance-style technical design document, review issue document, and Feishu-ready diagram images or whiteboards."

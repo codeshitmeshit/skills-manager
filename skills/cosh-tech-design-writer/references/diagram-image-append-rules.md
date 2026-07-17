@@ -76,7 +76,7 @@ lark-cli docs +media-insert \
   --doc "<doc_id_or_docx_url>" \
   --file /private/tmp/cosh-tech-design-diagrams/flow.png \
   --align center \
-  --caption "2.1 核心调用链图" \
+  --caption "三、方案总览：核心调用链图" \
   --width 800
 ```
 
@@ -85,7 +85,7 @@ lark-cli docs +media-insert \
 ## 文档正文配合
 
 - 技术方案正文仍保留 Mermaid/PlantUML/SVG 源码或简短说明，方便后续维护。
-- 图片追加在文档末尾时，caption 必须包含来源章节，例如 `2.1 核心调用链图`。
+- 图片追加在文档末尾时，caption 必须包含来源章节，例如 `三、方案总览：核心调用链图`。
 - 如果用户要求图片出现在具体章节下，而 `docs +media-insert` 只能追加到末尾，则先说明能力边界；需要精确位置时改用 `docs +update` 的图片 XML 或块级插入能力。
 - 插入图片失败时，技术方案正文不要写成“已插入图片”；问题文档记录失败原因、降级方式和下一步。
 

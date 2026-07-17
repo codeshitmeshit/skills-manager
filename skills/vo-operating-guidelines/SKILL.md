@@ -1,73 +1,77 @@
 ---
 name: vo-operating-guidelines
-description: Virtual Office 中任意 CLI 或 agent 需要判断是否处于 VO 环境、读取 VO 本地权威 skill、选择正确 VO 工作流或处理 VO 不可用降级时使用；本 skill 只作为入口，不维护具体 VO API 指南。
+description: Virtual Office 引导入口。任意 CLI 或 agent 需要判断是否处于本地 VO/VU、按本地端口拼接 HTTP 地址、读取当前 VO 实例的权威 skill、选择通信/项目/workspace/浏览器/会议工作流，或在 VO 不可达时安全降级时使用；不在 skill-manager 中维护具体 VO API 细节。
 ---
 
 # Virtual Office Skill 入口
 
 ## 目标
 
-本 skill 只作为 Virtual Office 的入口。完整 VO 系 skill 由当前 Virtual Office 实例维护，必须优先读取当前本地 VO 暴露的 skill 文件，不要在 skill management 中维护或复述具体 VO API 操作细节。
+定位当前可访问的 Virtual Office，读取该实例提供的权威 skill 总入口，再按实例规则选择工作流。
 
-不要硬编码、输出或传播任何生产域名、外部部署 URL、token、cookie、密钥或非本地配置。所有 VO 操作依据都应来自当前可访问的本地 VO 实例。
+本 skill 只负责发现和引导。不要在 skill-manager 中复制 VO 的具体 API、业务规则或专用工作流；这些内容由当前 VO 实例维护。
 
-## 探测当前 VO
+## 工作流
 
-按以下顺序确定本地 `VO_BASE_URL`：
+### 1. 判断运行位置
 
-1. 如果环境变量已有 `VO_BASE_URL`，直接使用。
-2. 如果环境变量已有 `VO_PORT`，使用 `http://127.0.0.1:$VO_PORT`。
-3. 如果能访问当前 VO 项目本地 `.env`，读取其中的 `VO_PORT` 后使用 `http://127.0.0.1:$VO_PORT`。
-4. 最后尝试默认地址 `http://127.0.0.1:8090`。
+先判断当前 CLI 或 agent 是否运行在 VO/VU 本地项目环境中：
 
-可使用下面的本地探测片段：
+- 能访问当前 VO 项目目录，或当前进程已有 `VO_PORT`：按本地环境处理。
+- 明确运行在其他机器或隔离环境：按非本地环境处理。
+- 无法判断：先尝试本地探测；失败后停止 VO 专属动作，不猜测外部地址。
+
+能读取本地项目文件只证明文件可见；如果运行环境明确存在独立网络边界，不要假设它与 VO 服务共享 `127.0.0.1`。
+
+### 2. 拼接本地地址
+
+本地环境不需要获取、询问或暴露外部 Base URL。按以下顺序确定端口：
+
+1. 使用当前进程的 `VO_PORT`。
+2. 从当前 VO 项目 `.env` 读取 `VO_PORT`。
+3. 回退到默认端口 `8090`。
+
+把端口拼成 `http://127.0.0.1:$VO_PORT`，再追加 skill 接口路径：
 
 ```bash
-if [ -z "${VO_BASE_URL:-}" ] && [ -z "${VO_PORT:-}" ] && [ -f /home/wo/code/my-virtual-office/.env ]; then
-  VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' /home/wo/code/my-virtual-office/.env)"
+VO_PROJECT_ROOT="${VO_PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+if [ -z "${VO_PORT:-}" ] && [ -f "$VO_PROJECT_ROOT/.env" ]; then
+  VO_PORT="$(awk -F= '$1=="VO_PORT"{print $2; exit}' "$VO_PROJECT_ROOT/.env")"
 fi
-VO_BASE_URL="${VO_BASE_URL:-http://127.0.0.1:${VO_PORT:-8090}}"
-curl -sS "$VO_BASE_URL/vo-config"
+VO_LOCAL_URL="http://127.0.0.1:${VO_PORT:-8090}"
+curl -sS "$VO_LOCAL_URL/skills/index.md"
 ```
 
-如果当前运行环境不是 VO 本机环境，`127.0.0.1` 可能指向调用方自身。此时不要猜测公网地址；应停止 VO 专属动作，并要求提供当前可访问的本地 VO 地址。
+只有调用方明确不在当前 VO/VU 本地运行环境中时，才使用用户或运行环境显式提供的 `VO_BASE_URL`。不要自行猜测、搜索或传播生产域名和外部部署地址。
 
-## 读取本地权威 Skill
+### 3. 读取实例权威 Skill
 
-读取当前 VO 实例的 skill 总入口：
+完整读取当前实例返回的 `/skills/index.md`，再根据其中的路由说明读取所需专用 skill。以当前 VO 实例暴露的 `/skills/...` 内容为唯一权威来源。
 
-```bash
-curl -sS "$VO_BASE_URL/skills/index.md"
-```
+不要使用 skill-manager 中的历史知识补全具体接口，也不要绕过当前实例定义的通信、项目、workspace、浏览器或会议边界。
 
-`/skills/index.md` 由当前 VO 实例映射到本地 `vo-operating-guidelines` 权威 skill。根据该总入口的路由说明，按需读取对应 skill：
+### 4. 处理不可达
 
-```text
-/skills/vo-agent-communication/SKILL.md
-/skills/vo-codex-communication/SKILL.md
-/skills/vo-browser-control/SKILL.md
-/skills/vo-agent-workspace/SKILL.md
-/skills/vo-project-workflow/SKILL.md
-/skills/vo-meeting-execution/SKILL.md
-```
+如果本地 skill 总入口不可访问：
 
-如果本地 VO skill 文件不可访问，不要继续执行 VO 专属动作，也不要使用 skill management 中的旧知识补全。报告实际失败地址和错误，并要求用户确认 VO 是否已启动或当前 agent 是否能访问该本地实例。
+- 报告尝试过的本地地址和原始错误。
+- 检查 `VO_PORT` 与项目 `.env`，不要只重复尝试默认端口。
+- 停止 VO 专属动作，不回退到直接读取仓库模块来替代 HTTP 权威入口。
+- 只有确认调用方属于非本地环境时，才请求提供其可访问的 `VO_BASE_URL`。
 
 ## 安全规则
 
-- 只把当前本地 VO 实例暴露的 `/skills/.../SKILL.md` 作为 VO 操作指南的权威来源。
-- 不使用生产域名或外部 URL 作为 agent 操作依据。
-- 不输出生产域名、外部部署 URL、token、cookie、密钥或敏感配置。
-- 不在本 skill 中复述或维护具体 VO API 细节；读取本地 VO skill 后再执行。
-- 不绕过本地 VO 的通信、项目、会议、workspace 或浏览器边界。
-- 本地 VO 不可访问时，停止 VO 专属动作并明确降级。
+- 不硬编码或输出生产域名、外部部署 URL、token、cookie、密钥或敏感配置。
+- 不把外部 Base URL 当作本地 VO/VU agent 的必需配置。
+- 不因能读取本地文件就忽略已知的网络隔离边界。
+- 不在本入口维护具体 VO API 和下游工作流副本。
 
 ## 质量检查
 
-执行任何 VO 动作前确认：
+执行 VO 动作前确认：
 
-- 已确定当前可访问的本地 `VO_BASE_URL`。
-- 已读取 `$VO_BASE_URL/skills/index.md`。
-- 已按本地 VO skill 指南选择具体工作流。
-- 没有依赖 skill management 中的旧 VO API 说明。
-- 没有泄露或固化任何非本地地址与敏感信息。
+- 已判断当前调用方属于本地还是非本地运行环境。
+- 本地环境已通过 `VO_PORT` 或项目 `.env` 拼出 loopback 地址。
+- 已完整读取当前实例的 `/skills/index.md`。
+- 已按实例权威 skill 路由，没有依赖 skill-manager 中的旧接口知识。
+- 不可达时已明确降级，没有猜测或泄露外部地址。
