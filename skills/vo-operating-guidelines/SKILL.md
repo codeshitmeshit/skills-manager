@@ -56,6 +56,8 @@ curl -sS "$VO_LOCAL_URL/skills/index.md"
 
 - 报告尝试过的本地地址和原始错误。
 - 检查 `VO_PORT` 与项目 `.env`，不要只重复尝试默认端口。
+- 如果当前 provider runtime 访问不到 localhost，优先判断为 sandbox/container 与宿主机隔离；尝试一次可用的沙箱外/宿主侧访问路径读取同一个 `http://127.0.0.1:<port>/skills/index.md`。
+- 如果沙箱外/宿主侧读取也失败，停止 VO 专属动作并报告访问失败；不要为了读取 skill 入口继续要求用户提供 bridge。
 - 停止 VO 专属动作，不回退到直接读取仓库模块来替代 HTTP 权威入口。
 - 只有确认调用方属于非本地环境时，才请求提供其可访问的 `VO_BASE_URL`。
 
