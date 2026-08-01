@@ -1,6 +1,6 @@
 ---
-name: cosh-requirement-review-planner
-description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码图与源码分析、变量级修改点、design、tasks、逐任务实现和 CR，到测试验证与归档的完整研发流程；同时用实时网站或自然语言切换和跟踪多个 change、查看产物并控制连续或单独推进。用户要求“用 OpenSpec 评审并开发”“先读代码再出 design”“精确定位修改变量”“实时查看 OpenSpec 进度”“按 task 实现和 CR”或“完成验证归档”时使用。
+name: cosh-byted-openspec-review-planner
+description: 字节专属 OpenSpec 评审的基线版本，当前研发流程与通用版完全一致，供后续增加字节专属能力。在产品需求澄清后，使用 OpenSpec 管理从规格、代码图与源码分析、变量级修改点、design、tasks、逐任务实现和 CR，到测试验证与归档的完整研发流程；同时用实时网站或自然语言切换和跟踪多个 change、查看产物并控制连续或单独推进。用户要求“用 OpenSpec 评审并开发”“先读代码再出 design”“精确定位修改变量”“实时查看 OpenSpec 进度”“按 task 实现和 CR”或“完成验证归档”时使用。
 ---
 
 # OpenSpec 需求方案评审与完整研发流程

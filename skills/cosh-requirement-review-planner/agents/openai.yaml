@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenSpec 需求方案评审"
-  short_description: "用 OpenSpec 评审需求并执行规格驱动开发门禁"
-  default_prompt: "Use $cosh-requirement-review-planner to review this clarified requirement with OpenSpec as the source of truth, wait for confirmation at each gate, and drive verification and archive."
+  short_description: "用 OpenSpec 完成代码分析、方案评审、任务开发与实时跟踪"
+  default_prompt: "Use $cosh-requirement-review-planner to drive this clarified requirement through OpenSpec, source-backed modification-point analysis, design review, task-level implementation and CR, live progress tracking, verification, and archive."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "字节版 OpenSpec 需求方案评审"
+  short_description: "用 OpenSpec 完成代码分析、方案评审、任务开发与实时跟踪"
+  default_prompt: "Use $cosh-byted-openspec-review-planner to drive this clarified requirement through OpenSpec, source-backed modification-point analysis, design review, task-level implementation and CR, live progress tracking, verification, and archive."
