@@ -817,7 +817,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertIn('data.mode !== "continuous"', javascript)
         self.assertIn('id="work-select"', javascript)
         self.assertIn("task-nav", styles)
-        self.assertIn("Superpowers", html)
+        self.assertIn("<title>cosh 验收观察版</title>", html)
         self.assertNotIn("change-select", javascript)
 
     def test_overview_renders_vertical_stepper_and_switches_details_without_writes(
