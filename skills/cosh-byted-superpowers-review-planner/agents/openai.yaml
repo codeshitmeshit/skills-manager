@@ -1,0 +1,4 @@
+interface:
+  display_name: "字节 Superpowers 研发流程"
+  short_description: "评审技术方案并以强门禁推进字节研发任务"
+  default_prompt: "Use $cosh-byted-superpowers-review-planner to review this technical design and drive a native Superpowers implementation with hard gates."
