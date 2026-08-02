@@ -15,6 +15,7 @@ from internal.git_ops import (
     ensure_worktree_clean,
     update_repo,
 )
+from tests._temp_utils import GitTemporaryDirectory
 
 
 def git(repo: pathlib.Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -165,7 +166,7 @@ class GitOpsTest(unittest.TestCase):
         content: str = "remote update\n",
     ) -> str:
         remote_url = git(repo, "remote", "get-url", "origin").stdout.strip()
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with GitTemporaryDirectory() as tmpdir:
             work = pathlib.Path(tmpdir) / "remote-work"
             subprocess.run(
                 ["git", "clone", remote_url, str(work)],
@@ -181,7 +182,7 @@ class GitOpsTest(unittest.TestCase):
 
 class _RemoteRepo:
     def __enter__(self) -> pathlib.Path:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = GitTemporaryDirectory()
         root = pathlib.Path(self.tmp.name)
         seed = root / "seed"
         remote = root / "remote.git"

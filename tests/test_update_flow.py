@@ -10,6 +10,7 @@ from internal.config import load_config, save_config
 from internal.git_ops import GitError
 from internal.update import run_update
 from internal.verifier import VerificationError
+from tests._temp_utils import GitTemporaryDirectory
 
 
 def git(repo: pathlib.Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -299,7 +300,7 @@ class UpdateFlowTest(unittest.TestCase):
 
 def add_remote_skill(repo: pathlib.Path, name: str) -> str:
     remote_url = git(repo, "remote", "get-url", "origin").stdout.strip()
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with GitTemporaryDirectory() as tmpdir:
         work = pathlib.Path(tmpdir) / "remote-work"
         subprocess.run(
             ["git", "clone", remote_url, str(work)],
@@ -335,7 +336,7 @@ def add_local_skill(repo: pathlib.Path, name: str, *, cli_scope: tuple[str, ...]
 
 class _RemoteSkillRepo:
     def __enter__(self) -> pathlib.Path:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = GitTemporaryDirectory()
         root = pathlib.Path(self.tmp.name)
         seed = root / "seed"
         remote = root / "remote.git"
