@@ -4,7 +4,21 @@
 
 ## 启动
 
-运行 `scripts/serve_superpowers_dashboard.py --project <目标仓库>`，默认只监听 `127.0.0.1`。服务发现 `.superpowers/byted-work/` 下的多个开发任务，通过 `?work=<work-id>` 切换。
+显式使用本 skill 开始技术方案评审、正式研发或查看进度时，在建立 `<work-id>` 基础状态后自动运行：
+
+```bash
+python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
+  --project <目标仓库> \
+  --work <work-id> \
+  --port 0 \
+  --open
+```
+
+其中 `<skill-root>` 是当前已加载 `SKILL.md` 所在目录。启动前将它解析为绝对路径，不能依赖目标仓库的当前工作目录。
+
+服务默认只监听 `127.0.0.1`；必须组合使用 `--port 0 --open`，让系统选择空闲端口，并在服务成功监听后调用系统默认浏览器。必须输出实际绑定的最终 URL，并保持服务贯穿后续研发阶段。自动打开失败不阻塞研发流程，保留服务并提示用户手动打开最终 URL。
+
+服务发现 `.superpowers/byted-work/` 下的多个开发任务，通过 `?work=<work-id>` 切换。用户仅解释、测试或维护本 skill 及其资源时不自动启动，避免维护过程递归打开观察板。
 
 ## 页面
 

@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+import webbrowser
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -454,6 +455,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        dest="open_browser",
+        help="Open the dashboard in the system default browser after binding",
+    )
     return parser.parse_args()
 
 
@@ -464,7 +471,18 @@ def main() -> None:
         (args.host, args.port), make_handler(args.project, args.work)
     )
     host, port = server.server_address
-    print(f"Superpowers dashboard: http://{host}:{port}/", flush=True)
+    dashboard_url = f"http://{host}:{port}/"
+    print(f"Superpowers dashboard: {dashboard_url}", flush=True)
+    if getattr(args, "open_browser", False):
+        try:
+            if not webbrowser.open(dashboard_url, new=2):
+                LOGGER.warning("系统默认浏览器未接受观察板地址：%s", dashboard_url)
+        except Exception as error:
+            LOGGER.warning(
+                "自动打开系统默认浏览器失败：%s；请手动打开 %s",
+                error,
+                dashboard_url,
+            )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

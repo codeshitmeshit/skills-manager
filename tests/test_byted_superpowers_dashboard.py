@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import argparse
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -13,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -703,6 +708,101 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         )
         status = self.get_json(server, f"/api/status?work={self.work_id}")
         self.assertEqual(status["work"], self.work_id)
+
+    def test_dashboard_cli_accepts_open_flag(self) -> None:
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["serve_superpowers_dashboard.py", "--open", "--port", "0"],
+        ):
+            args = SERVER.parse_args()
+
+        self.assertTrue(args.open_browser)
+        self.assertEqual(args.port, 0)
+
+    def test_dashboard_opens_actual_bound_url(self) -> None:
+        class FakeServer:
+            server_address = ("127.0.0.1", 54321)
+
+            def __init__(self) -> None:
+                self.served = False
+                self.closed = False
+
+            def serve_forever(self) -> None:
+                self.served = True
+
+            def server_close(self) -> None:
+                self.closed = True
+
+        fake_server = FakeServer()
+        args = argparse.Namespace(
+            project=self.root,
+            work=self.work_id,
+            host="127.0.0.1",
+            port=0,
+            open_browser=True,
+        )
+        output = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(SERVER, "parse_args", return_value=args))
+            stack.enter_context(
+                mock.patch.object(
+                    SERVER, "ThreadingHTTPServer", return_value=fake_server
+                )
+            )
+            browser_open = stack.enter_context(
+                mock.patch("webbrowser.open", return_value=True)
+            )
+            stack.enter_context(contextlib.redirect_stdout(output))
+            SERVER.main()
+
+        browser_open.assert_called_once_with("http://127.0.0.1:54321/", new=2)
+        self.assertIn(
+            "Superpowers dashboard: http://127.0.0.1:54321/", output.getvalue()
+        )
+        self.assertTrue(fake_server.served)
+        self.assertTrue(fake_server.closed)
+
+    def test_dashboard_keeps_serving_when_browser_open_fails(self) -> None:
+        class FakeServer:
+            server_address = ("127.0.0.1", 54322)
+
+            def __init__(self) -> None:
+                self.served = False
+                self.closed = False
+
+            def serve_forever(self) -> None:
+                self.served = True
+
+            def server_close(self) -> None:
+                self.closed = True
+
+        fake_server = FakeServer()
+        args = argparse.Namespace(
+            project=self.root,
+            work=self.work_id,
+            host="127.0.0.1",
+            port=0,
+            open_browser=True,
+        )
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(SERVER, "parse_args", return_value=args))
+            stack.enter_context(
+                mock.patch.object(
+                    SERVER, "ThreadingHTTPServer", return_value=fake_server
+                )
+            )
+            stack.enter_context(
+                mock.patch("webbrowser.open", side_effect=RuntimeError("no browser"))
+            )
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            try:
+                SERVER.main()
+            except RuntimeError as error:
+                self.fail(f"browser failure escaped dashboard startup: {error}")
+
+        self.assertTrue(fake_server.served)
+        self.assertTrue(fake_server.closed)
 
     def test_document_endpoint_reads_only_selected_work_artifacts(self) -> None:
         server = self.start_server()

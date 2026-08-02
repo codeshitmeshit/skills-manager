@@ -140,6 +140,20 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("work=", dashboard)
         self.assertIn("SSE", dashboard)
 
+    def test_skill_starts_and_opens_dashboard_before_ai_spec(self) -> None:
+        dashboard = (
+            BYTED_DIR / "references" / "realtime-dashboard.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--port 0 --open", self.skill)
+        self.assertIn("AI-Spec 门禁前", self.skill)
+        self.assertIn("系统默认浏览器", self.skill)
+        self.assertIn("维护本 skill", self.skill)
+        self.assertIn("<skill-root>/scripts/serve_superpowers_dashboard.py", self.skill)
+        self.assertIn("--port 0 --open", dashboard)
+        self.assertIn("<skill-root>/scripts/serve_superpowers_dashboard.py", dashboard)
+        self.assertIn("自动打开失败不阻塞", dashboard)
+        self.assertIn("最终 URL", dashboard)
+
     def test_archive_is_local_gitignored_and_distills_rules(self) -> None:
         self.assertIn(".superpowers/byted-archive/", self.workflow)
         self.assertIn("gitignore", self.workflow)

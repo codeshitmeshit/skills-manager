@@ -18,6 +18,23 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 - 编码或测试前，完整读取 [`references/byted-coding-remote-ut.md`](references/byted-coding-remote-ut.md)。
 - 启动或解释观察板前，完整读取 [`references/realtime-dashboard.md`](references/realtime-dashboard.md)。
 
+## 入口启动
+
+- 显式使用本 skill 开始技术方案评审、正式研发或查看进度时，先解析目标仓库并建立当前 `<work-id>` 基础状态，再在 AI-Spec 门禁前启动观察板：
+
+```bash
+python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
+  --project <目标仓库> \
+  --work <work-id> \
+  --port 0 \
+  --open
+```
+
+- `<skill-root>` 是当前已加载 `SKILL.md` 所在目录；启动前先解析为绝对路径，不能依赖目标仓库的当前工作目录。
+- 必须组合使用 `--port 0 --open`；`--open` 调用系统默认浏览器。保持服务贯穿后续阶段，并向用户输出服务实际绑定的最终 URL。
+- 自动打开失败不阻塞研发流程；保留服务并提供最终 URL 供手动打开。
+- 用户仅解释、测试或维护本 skill 及其资源时，不启动观察板，避免递归触发。
+
 ## 不可变规则
 
 - 前一阶段没有关联当前技术文档版本与代码 SHA 的有效通过证据时，不得进入后一阶段；缺失、解析失败、版本不符和证据过期一律 `fail closed`。
@@ -38,16 +55,17 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 
 严格按以下顺序执行：
 
-1. 冻结技术文档来源、版本、SHA-256、目标、范围、非目标和验收标准。
-2. 自动安装或更新 AI-Spec 并记录知识证据；接入、更新、读取或证据校验失败时直接阻塞。
-3. 使用 CodeGraph 和当前源码形成代码事实快照，记录文件、符号、变量、接口、调用链、可复用基建和代码 SHA。
-4. 同时启动稳定性、安全性、可行性三个独立只读 Subagent，持续记录阶段、未通过风险点、证据和建议修改方式。
-5. 汇总结论。存在阻塞时保持在评审阶段，并提供可选的技术文档修改入口。
-6. 用户修改技术文档时生成新版本和 diff，从知识门禁重新执行完整评审，循环直到当前版本三路全部通过。
-7. 用户确认评审闭环后，使用 `superpowers:brainstorming` 生成原生规格并完成书面确认。
-8. 再次校验文件、符号、变量和接口定位；规格与代码事实冲突时退回评审。
-9. 使用 `superpowers:writing-plans` 生成原生实施计划，每个实施子任务声明允许修改范围、验证与完成条件。
-10. 按推进模式逐个实施子任务；全部完成后执行完整远程 UT、最终 CR、普通 push 和本地归档。
+1. 冻结技术文档来源、版本、SHA-256、目标、范围、非目标和验收标准，建立当前 `<work-id>` 基础状态。
+2. 按“入口启动”在 AI-Spec 门禁前启动观察板并自动打开系统默认浏览器。
+3. 自动安装或更新 AI-Spec 并记录知识证据；接入、更新、读取或证据校验失败时直接阻塞。
+4. 使用 CodeGraph 和当前源码形成代码事实快照，记录文件、符号、变量、接口、调用链、可复用基建和代码 SHA。
+5. 同时启动稳定性、安全性、可行性三个独立只读 Subagent，持续记录阶段、未通过风险点、证据和建议修改方式。
+6. 汇总结论。存在阻塞时保持在评审阶段，并提供可选的技术文档修改入口。
+7. 用户修改技术文档时生成新版本和 diff，从知识门禁重新执行完整评审，循环直到当前版本三路全部通过。
+8. 用户确认评审闭环后，使用 `superpowers:brainstorming` 生成原生规格并完成书面确认。
+9. 再次校验文件、符号、变量和接口定位；规格与代码事实冲突时退回评审。
+10. 使用 `superpowers:writing-plans` 生成原生实施计划，每个实施子任务声明允许修改范围、验证与完成条件。
+11. 按推进模式逐个实施子任务；全部完成后执行完整远程 UT、最终 CR、普通 push 和本地归档。
 
 ## 实施子任务
 
@@ -79,7 +97,7 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 
 - 使用 `.superpowers/byted-work/<work-id>/` 保存字节门禁和证据旁路状态。
 - 使用 `docs/superpowers/specs/`、`docs/superpowers/plans/` 与 `.superpowers/sdd/` 读取原生产物。
-- 启动 [`scripts/serve_superpowers_dashboard.py`](scripts/serve_superpowers_dashboard.py) 后输出本地地址；用户不打开页面时仍按同一流程执行。
+- 入口阶段使用 [`scripts/serve_superpowers_dashboard.py`](scripts/serve_superpowers_dashboard.py) 自动启动并打开系统默认浏览器；用户关闭页面时仍按同一流程执行。
 - 每次状态或证据变化后确认 SSE 已刷新；页面不一致时修复投影，不手工伪造状态。
 - 多个开发任务并存时使用 `work=<work-id>` 切换，不能串写状态。
 
