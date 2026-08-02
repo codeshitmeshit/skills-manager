@@ -7,13 +7,19 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "cosh-byted-superpowers-review-planner"
 WORKFLOW_PATH = SKILL_DIR / "scripts" / "workflow_state.py"
 TASK_CONTROL_PATH = SKILL_DIR / "scripts" / "task_control.py"
+SERVER_PATH = SKILL_DIR / "scripts" / "serve_superpowers_dashboard.py"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -27,6 +33,29 @@ def load_module(name: str, path: pathlib.Path):
 
 WORKFLOW = load_module("byted_workflow_state", WORKFLOW_PATH)
 TASKS = load_module("byted_task_control", TASK_CONTROL_PATH)
+SERVER = load_module("byted_superpowers_dashboard", SERVER_PATH)
+
+
+def read_sse_event(response, expected_event: str = "status") -> dict:
+    event = ""
+    data_lines: list[str] = []
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        raw = response.readline()
+        if not raw:
+            break
+        line = raw.decode("utf-8").rstrip("\r\n")
+        if not line:
+            if event == expected_event and data_lines:
+                return json.loads("\n".join(data_lines))
+            event = ""
+            data_lines = []
+            continue
+        if line.startswith("event: "):
+            event = line[7:]
+        elif line.startswith("data: "):
+            data_lines.append(line[6:])
+    raise AssertionError(f"did not receive SSE event {expected_event}")
 
 
 class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
@@ -201,6 +230,32 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
                     "updated_at": "2026-08-02T11:00:00+08:00",
                 },
             )
+
+    def start_server(self):
+        server = SERVER.ThreadingHTTPServer(
+            ("127.0.0.1", 0), SERVER.make_handler(self.root, self.work_id)
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server
+
+    def get_json(self, server, path: str) -> dict:
+        host, port = server.server_address
+        with urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=3) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def post_json(self, server, path: str, payload: dict):
+        host, port = server.server_address
+        request = urllib.request.Request(
+            f"http://{host}:{port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
 
     def test_resolve_work_rejects_path_traversal(self) -> None:
         with self.assertRaises(WORKFLOW.DashboardError):
@@ -498,6 +553,127 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             status["current_task"]["allowed_files"], ["internal/order/risk.go"]
         )
         self.assertTrue(status["current_task"]["can_advance"])
+
+    def test_works_endpoint_and_work_query_replace_changes(self) -> None:
+        another = self.root / ".superpowers" / "byted-work" / "add-audit-log"
+        another.mkdir()
+        self.write_json(
+            another / "source.json",
+            {
+                "version": 1,
+                "sha256": "b" * 64,
+                "path": "technical-design.md",
+                "updated_at": "2026-08-02T09:00:00+08:00",
+            },
+        )
+        server = self.start_server()
+        catalog = self.get_json(server, "/api/works")
+        self.assertEqual(catalog["default_work"], self.work_id)
+        self.assertEqual(
+            [item["name"] for item in catalog["works"]],
+            ["add-audit-log", self.work_id],
+        )
+        status = self.get_json(server, f"/api/status?work={self.work_id}")
+        self.assertEqual(status["work"], self.work_id)
+
+    def test_document_endpoint_reads_only_selected_work_artifacts(self) -> None:
+        server = self.start_server()
+        relative = f".superpowers/byted-work/{self.work_id}/technical-design.md"
+        encoded = urllib.parse.quote(relative)
+        payload = self.get_json(
+            server, f"/api/document?work={self.work_id}&path={encoded}"
+        )
+        self.assertEqual(payload["content"], self.source_text)
+        host, port = server.server_address
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            urllib.request.urlopen(
+                f"http://{host}:{port}/api/document?work={self.work_id}&path=../../outside",
+                timeout=3,
+            )
+        self.assertEqual(context.exception.code, 400)
+
+    def test_control_endpoint_switches_mode_with_state_version(self) -> None:
+        server = self.start_server()
+        before = self.get_json(server, f"/api/status?work={self.work_id}")
+        code, payload = self.post_json(
+            server,
+            "/api/control",
+            {
+                "action": "set-mode",
+                "work": self.work_id,
+                "mode": "continuous",
+                "expected_version": before["version"],
+                "idempotency_key": "mode-1",
+            },
+        )
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["mode"], "continuous")
+        self.assertEqual(
+            self.get_json(server, f"/api/status?work={self.work_id}")["mode"],
+            "continuous",
+        )
+
+    def test_stale_control_write_returns_conflict(self) -> None:
+        server = self.start_server()
+        host, port = server.server_address
+        request = urllib.request.Request(
+            f"http://{host}:{port}/api/control",
+            data=json.dumps(
+                {
+                    "action": "set-mode",
+                    "work": self.work_id,
+                    "mode": "continuous",
+                    "expected_version": "stale",
+                    "idempotency_key": "mode-stale",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            urllib.request.urlopen(request, timeout=3)
+        self.assertEqual(context.exception.code, 409)
+
+    def test_sse_emits_initial_and_updated_work_status(self) -> None:
+        server = self.start_server()
+        host, port = server.server_address
+        response = urllib.request.urlopen(
+            f"http://{host}:{port}/events?work={self.work_id}", timeout=4
+        )
+        self.addCleanup(response.close)
+        initial = read_sse_event(response)
+        self.assertEqual(initial["work"], self.work_id)
+        self.write_source(version=2, content="# 更新后的技术方案\n")
+        updated = read_sse_event(response)
+        self.assertEqual(updated["source"]["version"], 2)
+
+    def test_event_signature_is_stable_without_source_changes(self) -> None:
+        before_signature, _ = SERVER.event_payload(self.root, self.work_id)
+        time.sleep(0.01)
+        after_signature, _ = SERVER.event_payload(self.root, self.work_id)
+        self.assertEqual(before_signature, after_signature)
+
+    def test_static_dashboard_uses_development_work_and_task_navigation(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        html = (SKILL_DIR / "assets" / "dashboard" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        styles = (SKILL_DIR / "assets" / "dashboard" / "styles.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('new EventSource(apiUrl("/events", { work }))', javascript)
+        self.assertIn('fetch("/api/works"', javascript)
+        self.assertIn("开发任务", javascript)
+        self.assertIn("风险点", javascript)
+        self.assertIn("推进下一个任务", javascript)
+        self.assertIn('data.mode !== "continuous"', javascript)
+        self.assertIn('id="work-select"', javascript)
+        self.assertIn("task-nav", styles)
+        self.assertIn("Superpowers", html)
+        self.assertNotIn("OpenSpec", javascript + html)
+        self.assertNotIn("change-select", javascript)
 
 
 if __name__ == "__main__":
