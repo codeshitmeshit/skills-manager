@@ -109,6 +109,14 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("禁止调用 Hammer", self.remote_ut)
         self.assertIn("当前代码 SHA", self.remote_ut)
 
+    def test_hammer_is_mutually_exclusive_with_the_complete_workflow(self) -> None:
+        self.assertIn("互斥", self.skill)
+        self.assertIn("整个研发任务", self.skill)
+        self.assertIn("hammer-design", self.skill)
+        self.assertIn("hammer-execute", self.skill)
+        self.assertIn("Hammer 状态", self.workflow)
+        self.assertIn("不得切换", self.workflow)
+
     def test_single_task_mode_is_strictly_serial(self) -> None:
         self.assertIn("逐一任务校验", self.workflow)
         self.assertIn("一次只允许开发一个实施子任务", self.workflow)

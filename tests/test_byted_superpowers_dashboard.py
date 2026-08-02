@@ -106,12 +106,13 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             },
         )
 
-    def write_workflow(self, mode: str = "single") -> None:
+    def write_workflow(self, mode: str = "single", engine: str = "superpowers") -> None:
         self.write_json(
             self.work / "workflow.json",
             {
                 "work": self.work_id,
                 "mode": mode,
+                "engine": engine,
                 "state_version": 1,
                 "updated_at": "2026-08-02T10:00:00+08:00",
             },
@@ -356,6 +357,19 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         status = WORKFLOW.build_status(self.root, self.work_id)
         self.assertEqual(status["stages"]["source"]["status"], "blocked")
         self.assertIn("SHA-256", " ".join(status["stages"]["source"]["blockers"]))
+
+    def test_hammer_engine_blocks_the_complete_superpowers_workflow(self) -> None:
+        self.write_workflow(engine="hammer")
+        self.write_complete_review_round()
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["engine"], "hammer")
+        self.assertEqual(status["stages"]["source"]["status"], "blocked")
+        self.assertIn(
+            "互斥", " ".join(status["stages"]["source"]["blockers"])
+        )
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
 
     def test_review_cannot_pass_without_all_three_current_reviewers(self) -> None:
         self.write_knowledge_gate()

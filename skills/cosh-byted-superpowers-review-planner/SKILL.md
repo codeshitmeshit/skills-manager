@@ -22,6 +22,7 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 
 - 前一阶段没有关联当前技术文档版本与代码 SHA 的有效通过证据时，不得进入后一阶段；缺失、解析失败、版本不符和证据过期一律 `fail closed`。
 - 页面、API 和自然语言入口必须调用相同验证器。页面隐藏按钮不代表门禁，后端仍须拒绝越级请求。
+- 本流程与 Hammer 在整个研发任务内硬互斥。选择本流程后，只能使用原生 Superpowers；禁止调用 `hammer`、`hammer-design`、`hammer-plan`、`hammer-execute`、`hammer-report`、`hammer-sync`、`hammer-lite`、`hammer-knowledge` 及其他 Hammer 流程，也不得读取、继承或写入 Hammer 状态和产物。
 - 接收技术文档后，先完成 AI-Spec 知识门禁、CodeGraph 事实扫描以及稳定性、安全性、可行性三个独立 Subagent 评审；三路不得相互代替或继承过程结论。
 - AI-Spec 必须安装或更新成功并完整加载部门知识；不支持通用规则或其他知识源降级，接入失败时直接阻塞。
 - 技术文档修改后，旧知识证据、CodeGraph 快照和三路结论全部失效，重新进入知识门禁并执行三路完整评审；不能只复审上次未通过项。
@@ -31,6 +32,7 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 - 业务 UT 禁止本地运行，只能使用 `bits-remote-ut`。禁止调用 Hammer、`hammer-*` 或 `test-remote-ut`。
 - 全量远程 UT 与最终 CR 必须关联当前 HEAD 并通过，才允许普通 `git push`。不得自动调用 `$cosh-before-push`。
 - 连续推进只能取消人工等待，不能跳过范围校验、远程 UT、CR、提交或任何全局门禁。
+- 同一开发任务不得在 Superpowers 与 Hammer 之间切换。检测到 Hammer 引擎、调用记录、状态或产物时立即阻塞；如需改用 Hammer，先终止并归档当前任务，再建立完全独立的新任务。
 
 ## 主流程
 

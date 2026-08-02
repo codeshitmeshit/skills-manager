@@ -615,6 +615,18 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         LOGGER.warning("开发任务 %s 的 workflow.json 不可读：%s", work_dir.name, error)
 
     source, source_stage = _validate_source(work_dir)
+    engine = workflow.get("engine")
+    if engine != "superpowers":
+        source_stage = _stage(
+            "blocked",
+            [
+                *source_stage.get("blockers", []),
+                "研发引擎互斥：workflow.json 必须固定为 engine=superpowers，禁止接入 Hammer",
+            ],
+            fix="终止并归档其他研发引擎任务后，建立独立的 Superpowers 开发任务",
+            version=source_stage.get("version"),
+            updated_at=str(source_stage.get("updated_at", "")),
+        )
     knowledge, knowledge_stage = _project_knowledge_gate(work_dir, source, source_stage)
     codegraph, codegraph_stage = _project_codegraph(work_dir, source, knowledge_stage)
     reviews, review_stage = _project_reviews(
@@ -704,6 +716,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
 
     return {
         "work": work_dir.name,
+        "engine": engine or "missing",
         "source": source,
         "mode": workflow.get("mode", "single"),
         "version": _state_version(work_dir),
