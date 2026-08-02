@@ -159,7 +159,7 @@ function renderDocumentTab(data, category) {
 
 function renderValidation(data) {
   const items = ["remote_ut", "final_review", "push", "archive"];
-  return `<section class="panel"><h2>验证与交付</h2><div class="validation-list">${items.map(name => stageCard(name, data.stages?.[name])).join("")}</div></section>`;
+  return `<section class="panel"><div class="section-title"><h2>验证与交付</h2><button class="secondary-button" id="archive-work">手动归档</button></div><div class="validation-list">${items.map(name => stageCard(name, data.stages?.[name])).join("")}</div></section>`;
 }
 
 function modeControl(data) {
@@ -195,6 +195,7 @@ function bindInteractions(data, tab) {
     updateControl(data, "advance-next", { expected_task: task.number, commit_type: guessCommitType(task.title), summary: task.title });
   });
   document.querySelector("#request-revision")?.addEventListener("click", () => updateControl(data, "request-source-revision"));
+  document.querySelector("#archive-work")?.addEventListener("click", () => updateControl(data, "archive"));
   document.querySelectorAll("[data-document]").forEach(button => button.addEventListener("click", () => {
     const url = new URL(window.location.href);
     url.searchParams.set("document", button.dataset.document);

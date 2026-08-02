@@ -26,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import task_control  # noqa: E402
 import workflow_state  # noqa: E402
+import archive_work  # noqa: E402
 
 
 LOGGER = logging.getLogger("byted-superpowers-dashboard")
@@ -226,6 +227,12 @@ def apply_control(project_root: Path, payload: Mapping[str, Any]) -> dict[str, A
         return build_status(project_root, work_id)
     if action == "request-source-revision":
         return _request_source_revision(project_root, work_id, expected_version)
+    if action == "archive":
+        before = workflow_state.build_status(project_root, work_id)
+        if before["version"] != expected_version:
+            raise workflow_state.DashboardConflict("开发任务状态已经变化，请刷新后重试")
+        archive_work.archive_work(project_root, work_id, "manual")
+        return build_status(project_root, work_id)
     raise workflow_state.DashboardError(f"不支持的控制动作：{action}")
 
 
@@ -349,6 +356,7 @@ def make_handler(
             previous = ""
             while True:
                 try:
+                    archive_work.archive_after_push(root, work_id)
                     signature, payload = event_payload(root, work_id)
                     if signature != previous:
                         frame = (

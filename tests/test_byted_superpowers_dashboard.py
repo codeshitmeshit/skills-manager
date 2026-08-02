@@ -20,6 +20,7 @@ SKILL_DIR = ROOT / "skills" / "cosh-byted-superpowers-review-planner"
 WORKFLOW_PATH = SKILL_DIR / "scripts" / "workflow_state.py"
 TASK_CONTROL_PATH = SKILL_DIR / "scripts" / "task_control.py"
 SERVER_PATH = SKILL_DIR / "scripts" / "serve_superpowers_dashboard.py"
+ARCHIVE_PATH = SKILL_DIR / "scripts" / "archive_work.py"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -34,6 +35,7 @@ def load_module(name: str, path: pathlib.Path):
 WORKFLOW = load_module("byted_workflow_state", WORKFLOW_PATH)
 TASKS = load_module("byted_task_control", TASK_CONTROL_PATH)
 SERVER = load_module("byted_superpowers_dashboard", SERVER_PATH)
+ARCHIVE = load_module("byted_archive_work", ARCHIVE_PATH)
 
 
 def read_sse_event(response, expected_event: str = "status") -> dict:
@@ -674,6 +676,131 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertIn("Superpowers", html)
         self.assertNotIn("OpenSpec", javascript + html)
         self.assertNotIn("change-select", javascript)
+
+    def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
+        self.write_json(
+            self.work / "evidence" / "conversation.json",
+            {
+                "total_turns": 18,
+                "observed_turns": 18,
+                "coverage": "完整任务会话",
+                "stage_turns": {"review": 11, "implementation": 7},
+            },
+        )
+        self.write_json(
+            self.work / "evidence" / "interaction-events.json",
+            {
+                "events": [
+                    {
+                        "category": "需求或技术方案歧义",
+                        "round": 3,
+                        "evidence": "用户将修改点纠正为风险点",
+                    },
+                    {
+                        "category": "评审发现风险",
+                        "round": 8,
+                        "evidence": "SEC5 发现日志脱敏缺口",
+                    },
+                ]
+            },
+        )
+        self.write_json(
+            self.work / "evidence" / "rule-candidates.json",
+            {
+                "rules": [
+                    {
+                        "rule": "评审问题统一命名为风险点",
+                        "evidence": "第 3 轮术语修正",
+                        "benefit": "减少领域含义误解",
+                        "scope": "字节技术方案评审",
+                        "confidence": "high",
+                        "target": "references/byted-admission-review.md",
+                    }
+                ]
+            },
+        )
+        path = ARCHIVE.archive_work(self.root, self.work_id, "manual")
+        content = path.read_text(encoding="utf-8")
+        self.assertEqual(path.parent.name, self.work_id)
+        self.assertIn("## 会话轮次与覆盖范围", content)
+        self.assertIn("完整轮数：18", content)
+        self.assertIn("## 为什么需要多轮讨论", content)
+        self.assertIn("SEC5 发现日志脱敏缺口", content)
+        self.assertIn("## 可蒸馏规则候选", content)
+        self.assertIn("评审问题统一命名为风险点", content)
+        self.assertTrue(ARCHIVE.is_archive_ignored(self.root))
+
+    def test_unknown_chat_turns_are_not_estimated(self) -> None:
+        self.write_json(
+            self.work / "evidence" / "conversation.json",
+            {
+                "total_turns": None,
+                "observed_turns": 7,
+                "coverage": "skill 启动后",
+            },
+        )
+        path = ARCHIVE.archive_work(self.root, self.work_id, "manual")
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("完整轮数：未知", content)
+        self.assertIn("已观测轮数：7", content)
+        self.assertIn("覆盖范围：skill 启动后", content)
+
+    def test_archive_redacts_sensitive_values(self) -> None:
+        self.write_json(
+            self.work / "evidence" / "interaction-events.json",
+            {
+                "events": [
+                    {
+                        "category": "测试失败",
+                        "round": 9,
+                        "evidence": "Authorization: Bearer very-secret-token",
+                        "password": "do-not-archive",
+                    }
+                ]
+            },
+        )
+        path = ARCHIVE.archive_work(self.root, self.work_id, "manual")
+        content = path.read_text(encoding="utf-8")
+        self.assertNotIn("very-secret-token", content)
+        self.assertNotIn("do-not-archive", content)
+        self.assertIn("[REDACTED]", content)
+
+    def test_manual_archive_control_returns_archive_document(self) -> None:
+        server = self.start_server()
+        before = self.get_json(server, f"/api/status?work={self.work_id}")
+        _, payload = self.post_json(
+            server,
+            "/api/control",
+            {
+                "action": "archive",
+                "work": self.work_id,
+                "expected_version": before["version"],
+                "idempotency_key": "archive-1",
+            },
+        )
+        self.assertEqual(payload["stages"]["archive"]["status"], "passed")
+        self.assertTrue(payload["archive"]["path"].endswith("-retrospective.md"))
+
+    def test_push_evidence_triggers_archive_once(self) -> None:
+        self.write_json(
+            self.work / "evidence" / "push.json",
+            {
+                "status": "passed",
+                "code_sha": "head-sha",
+                "remote": "origin",
+                "updated_at": "2026-08-02T16:00:00+08:00",
+            },
+        )
+        first = ARCHIVE.archive_after_push(self.root, self.work_id)
+        second = ARCHIVE.archive_after_push(self.root, self.work_id)
+        self.assertIsNotNone(first)
+        self.assertEqual(first, second)
+        archives = list(
+            (self.root / ".superpowers" / "byted-archive" / self.work_id).glob(
+                "*-retrospective.md"
+            )
+        )
+        self.assertEqual(len(archives), 1)
 
 
 if __name__ == "__main__":

@@ -445,6 +445,23 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
                 else False
             ),
         )
+    archive: dict[str, Any] = {}
+    try:
+        archive = _read_json(work_dir / "evidence" / "archive.json")
+    except DashboardError:
+        pass
+    archive_path = archive.get("path")
+    archive_exists = bool(
+        isinstance(archive_path, str)
+        and archive_path
+        and (project_root.resolve() / archive_path).is_file()
+    )
+    if archive.get("status") == "passed" and archive_exists:
+        stages["archive"] = _stage(
+            "passed",
+            version=archive.get("push_sha") or archive_path,
+            updated_at=str(archive.get("updated_at", "")),
+        )
 
     return {
         "work": work_dir.name,
@@ -458,6 +475,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         },
         "codegraph": codegraph,
         "reviews": reviews,
+        "archive": archive,
         **task_projection,
     }
 
