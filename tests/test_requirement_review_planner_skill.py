@@ -33,6 +33,11 @@ class RequirementReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("在产品需求澄清后", self.skill)
         self.assertIn("按 task 实现和 CR", self.skill)
 
+    def test_generic_flow_has_no_byted_technical_review_gate(self) -> None:
+        self.assertIn("不启动 AI-Spec 或稳定性、安全性、可行性评审", self.skill)
+        self.assertNotIn("技术评审前完整读取", self.skill)
+        self.assertNotIn("technical-review-rubric.md", self.skill)
+
     def test_openspec_remains_the_only_primary_state(self) -> None:
         self.assertIn("OpenSpec 是规格、设计、任务、验证和归档的唯一主状态", self.skill)
         self.assertIn("不创建平行状态机", self.skill)

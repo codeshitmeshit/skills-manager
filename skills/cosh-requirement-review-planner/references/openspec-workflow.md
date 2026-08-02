@@ -7,7 +7,7 @@
 1. 当前项目安装生成的 OpenSpec skills、commands 和 schema。
 2. OpenSpec 当前版本的官方文档与官方仓库。
 3. 当前项目 `openspec/` 配置、自定义 schema 和已有 artifacts。
-4. 本 skill 的技术评审与实现准确性规则。
+4. 本 skill 的实现准确性规则。
 5. 本 skill 的示例；示例不是权威格式。
 
 发生冲突时停止，说明冲突来源及采用高优先级规则的影响。

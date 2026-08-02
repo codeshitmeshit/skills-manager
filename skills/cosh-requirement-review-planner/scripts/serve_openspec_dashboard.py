@@ -600,8 +600,6 @@ def parse_modification_points(artifacts: list[dict[str, Any]]) -> list[dict[str,
 
 def document_category(path: str) -> tuple[str, str]:
     lowered = path.lower()
-    if any(token in lowered for token in ("review", "stability", "security", "feasibility")):
-        return "review", "评审"
     if any(token in lowered for token in ("proposal", "requirement", "spec")):
         return "spec", "规格"
     if "design" in lowered:
@@ -658,7 +656,7 @@ def read_document(project_root: Path, change: str | None, relative_path: str) ->
 
 
 def progress_state(
-    artifacts: list[dict[str, Any]], tasks: dict[str, Any], points: list[dict[str, str]], reviews: dict[str, Any], ai_spec: dict[str, Any]
+    artifacts: list[dict[str, Any]], tasks: dict[str, Any], points: list[dict[str, str]]
 ) -> tuple[str, str, list[dict[str, str]]]:
     has_spec = contains_role(artifacts, "proposal", "requirement", "spec")
     has_design = contains_role(artifacts, "design")
@@ -694,17 +692,8 @@ def progress_state(
         return "CodeGraph 分析", "确认变量级修改点", labels
     if not has_design:
         return "修改点确认", "基于确认后的修改点创建 design", labels
-    if set(reviews.get("required_reviewers", [])) == set(REVIEWER_ORDER) and ai_spec["status"] not in {"loaded", "fallback"}:
-        return "AI-Spec 知识门禁", ai_spec["message"], labels
-    if reviews["status"] in {"running", "blocked"}:
-        next_step = (
-            f"处理 {reviews['failed_count']} 条未通过结论并完成复查"
-            if reviews["failed_count"]
-            else "等待稳定性、安全性与可行性评审完成"
-        )
-        return "稳定性、安全性与可行性评审", next_step, labels
     if not has_tasks:
-        return "Design 评审", "确认 design 并生成 tasks", labels
+        return "Design 确认", "确认 design 并生成 tasks", labels
     if not tasks_done:
         return "任务实现", "完成当前 task 的验证与 CR", labels
     if not has_validation:
@@ -718,15 +707,7 @@ def build_status(project_root: Path, change: str | None = None) -> dict[str, Any
     tasks = parse_tasks(artifacts)
     points = parse_modification_points(artifacts)
     documents = build_documents(artifacts, points)
-    ai_spec = parse_ai_spec_evidence(artifacts, project_root)
-    reviews = parse_reviews(artifacts)
-    if set(reviews.get("required_reviewers", [])) == set(REVIEWER_ORDER) and ai_spec["status"] not in {"loaded", "fallback"}:
-        reviews["status"] = "blocked"
-        reviews["stage"] = "AI-Spec 知识门禁未通过"
-        reviews["knowledge_gate"] = "blocked"
-    else:
-        reviews["knowledge_gate"] = ai_spec["status"]
-    stage, next_gate, gates = progress_state(artifacts, tasks, points, reviews, ai_spec)
+    stage, next_gate, gates = progress_state(artifacts, tasks, points)
     source_mtime = max(item["mtime"] for item in artifacts)
     return {
         "change": change_dir.name,
@@ -737,8 +718,6 @@ def build_status(project_root: Path, change: str | None = None) -> dict[str, Any
         "next_gate": next_gate,
         "gates": gates,
         "modification_points": points,
-        "reviews": reviews,
-        "ai_spec": ai_spec,
         "documents": documents,
         "tasks": tasks,
         "artifacts": [

@@ -59,14 +59,6 @@ python3 scripts/serve_openspec_dashboard.py \
 
 ## 数据读取
 
-### 评审状态协议
-
-评审状态直接写在当前 schema 允许的 OpenSpec artifact 中，页面只读投影，不建立额外状态文件。每路评审用 `cosh-review-state` JSON 注释记录 `reviewer`、`required_reviewers`、`status`、`stage`、`completed`、`total`、`summary` 和 `updated_at`；`reviewer` 支持 `stability`、`security` 和 `feasibility`，`required_reviewers` 声明当前流程必须完成的评审集合。每条未通过结论用 `cosh-review-finding` 记录 `id`、`reviewer`、`check`、`status=failed`、`severity`、`blocking`、`title`、`evidence`、`location`、`recommendation`、`closure` 和 `updated_at`。`location` 必须精确到文件、符号或变量，`recommendation` 必须是可执行修改方式。问题闭环后保留 finding 并把 `closure` 改为 `closed`。
-
-页面识别的评审状态为 `not_started`、`running`、`blocked`、`passed`、`failed`；阶段或结论变化时立即更新 marker，使 SSE 在下一次监听周期推送，不得等整轮评审结束后补写。
-
-字节三路评审使用 `cosh-ai-spec-evidence` 记录部门 AI-Spec 门禁。`status=loaded` 时，服务校验版本、七个必需来源角色、项目内相对路径、64 位 SHA-256 和三路 Reviewer 引用映射，并实时重新计算文件哈希。`status=fallback` 时，服务强制校验确实尝试过自动安装/更新/初始化、每次命令结果、最终失败原因及 ST/SEC/F 三套通用规则。两种状态都可进入评审，但 fallback 必须持续显示黄色降级提示；没有证据、静默跳过或证据不完整时返回 blocked。通用流程不声明三路 `required_reviewers` 时只兼容展示，不强制启用该门禁。
-
 脚本递归读取 `openspec/changes/<change-id>/` 下的文本 artifacts，并从真实内容计算：
 
 - artifact 是否存在及最后修改时间；
@@ -76,8 +68,6 @@ python3 scripts/serve_openspec_dashboard.py \
 - 当前门禁和下一步；
 - 最近更新的 artifact。
 - 每个 artifact 所属标签（规格、Design、Tasks、验证、代码证据）及其关联修改点。
-- 各路评审的当前检查项、完成度、状态和更新时间，缺失的必需 Reviewer，以及每条未闭环 finding 的证据、修改位置和修改建议。
-- AI-Spec 版本、知识门禁状态、已校验知识源数量、缺失角色和失效文件。
 
 ## 多 Change 切换
 
@@ -116,14 +106,14 @@ python3 scripts/serve_openspec_dashboard.py \
 首屏优先展示当前决策，而不是通用管理后台：
 
 1. change 名称、当前阶段、实时连接状态、最后更新时间；
-2. 贯穿总览与详情页的产物导航栏，按“总览、Proposal、规格、修改点、Design、评审、验证”展示当前已有产物，并把 Tasks 固定在最右侧作为高亮的开发主入口；
+2. 贯穿总览与详情页的产物导航栏，按“总览、Proposal、规格、修改点、Design、验证”展示当前已有产物，并把 Tasks 固定在最右侧作为高亮的开发主入口；
 3. 总体 task 进度和下一人工门禁；
 4. 七个门禁的状态轨迹；
 5. 当前修改点的文件、符号、变量、类型和变化；
 6. design 与修改点映射；
-7. 总览仅显示 task 总体进度；完整 tasks 和推进控制放在 Tasks 产物页，验证证据、风险和未决假设放在对应产物页。
+7. 总览显示 task 总体进度、人工门禁和修改点；完整 tasks 和推进控制放在 Tasks 产物页，验证证据和未决假设放在对应产物页。
 
-评审开始后，总览必须出现各路评审的实时进度卡片，并在原代码修改点卡片所在区域展示“风险点”；风险点只来自尚未闭环的评审 finding，显示严重级别、阻断状态、风险位置和处理建议，不得把代码修改点改名后冒充风险点。代码修改点继续通过导航和独立详情页查看。评审产物页展示完整评审中心，并额外展示 finding 证据。必需 Reviewer 未启动时显示等待状态，不得把部分 Reviewer 通过显示为整体通过；finding 闭环后从“风险点”列表移除，但仍保留在 OpenSpec 原文供追溯。
+通用观察板不得读取、校验或展示 AI-Spec 知识门禁、稳定性评审、安全性评审、可行性评审及其 finding。上述能力仅属于字节专版观察板。
 
 导航项只在对应产物存在时出现。点击产物后进入统一只读阅读页；同类有多个文件时必须列出文件路径，不得只展示第一个。产物正文继续通过 `/api/document` 从当前 change 读取，并随 SSE 快照中的版本变化实时更新。
 
@@ -149,5 +139,4 @@ Tasks 导航必须使用独立的高识别度颜色，在未选中和选中状�
 12. 导航栏覆盖当前已有的所有产物类型；点击任一产物可读取正文，同类多个文件均可选择。
 13. 同一项目存在多个 change 时，切换后状态、SSE、文件读取和任务控制均只作用于所选 change。
 14. 在临时 Git 仓库暂存文件后点击“推进下一个任务”，生成一次包含该暂存快照的 commit；暂存区为空时不生成空 commit，提交失败时不记录放行。
-15. 更新任一路 `cosh-review-state` 的 stage 或 completed 后，现有 SSE 连接收到新状态；新增、修改或闭环 `cosh-review-finding` 后，页面同步更新未通过数量、阻断数量、证据、修改位置和修改建议。
-16. 字节三路评审缺少 `cosh-ai-spec-evidence`、任一必需角色、Reviewer 引用或文件哈希不一致时，API 和页面显示 AI-Spec 知识门禁未通过；合法 fallback 显示“通用规则降级”并允许继续，修复为 loaded 后由同一 SSE 连接实时恢复。
+15. 页面与 `/api/status` 均不出现 AI-Spec、稳定性、安全性或可行性评审字段和区域。

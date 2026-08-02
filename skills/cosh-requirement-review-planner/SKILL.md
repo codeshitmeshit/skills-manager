@@ -1,9 +1,9 @@
 ---
 name: cosh-requirement-review-planner
-description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码图与源码分析、变量级修改点、design、tasks、逐任务实现和 CR，到测试验证与归档的完整研发流程；同时用实时网站或自然语言切换和跟踪多个 change、查看产物并控制连续或单独推进。用户要求“用 OpenSpec 评审并开发”“先读代码再出 design”“精确定位修改变量”“实时查看 OpenSpec 进度”“按 task 实现和 CR”或“完成验证归档”时使用。
+description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码图与源码分析、变量级修改点、design、tasks、逐任务实现和 CR，到测试验证与归档的通用研发流程；同时提供实时观察板跟踪多个 change 和查看产物。用户要求“按 OpenSpec 流程开发”“先读代码再出 design”“精确定位修改变量”“实时查看 OpenSpec 进度”“按 task 实现和 CR”或“完成验证归档”时使用；不包含字节专版的 AI-Spec 及稳定性、安全性、可行性评审。
 ---
 
-# OpenSpec 需求方案评审与完整研发流程
+# OpenSpec 通用研发流程
 
 ## 目标
 
@@ -12,7 +12,6 @@ description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码
 ## 必读资源
 
 - 开始任何阶段前完整读取 [`references/openspec-workflow.md`](references/openspec-workflow.md)。
-- 技术评审前完整读取 [`references/technical-review-rubric.md`](references/technical-review-rubric.md)。
 - 进入仓库分析、任务拆分或编码前完整读取 [`references/implementation-accuracy.md`](references/implementation-accuracy.md)。
 - 生成 tasks、编码或 CR 前完整读取 [`references/code-authoring-standards.md`](references/code-authoring-standards.md)。
 - 使用 CodeGraph、确认修改点或创建 design 前完整读取 [`references/codegraph-modification-point.md`](references/codegraph-modification-point.md)。
@@ -31,6 +30,7 @@ description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码
 - 编码时优先复用仓库已有能力并保持最小、简洁的实现；只有现有能力无法在正确边界内安全复用时才新增抽象、函数或模块，并记录不能复用的证据。
 - 新增或修改的核心业务逻辑必须有说明意图、边界或原因的中文注释；关键分支、状态变化和失败路径必须复用项目日志体系提供可观测性，同时禁止敏感信息泄露、重复报错和日志风暴。
 - OpenSpec 安装、状态读取、schema 或 artifact 校验失败时停止，不降级为对话中的临时计划。
+- 本通用流程不启动 AI-Spec 或稳定性、安全性、可行性评审，不创建或等待三路评审状态、finding 与知识门禁；这些能力只属于字节专版流程。
 - 实时网站除受控执行授权外只读消费 OpenSpec；页面和自然语言是等价控制入口，共用当前 tasks artifact 的 `cosh-dashboard-control` 元数据记录推进模式和 CR 放行。推进下一任务前必须校验当前 task 并处理 Git 暂存区。不得自动暂存文件或创建空提交；不修改 checkbox、规格、design 或代码，也不生成平行状态文件。
 - 不假设某个 CodeGraph 或外部研发工具必然可用；先发现当前仓库与环境实际能力。工具不可用时使用本地源码、仓库检索、语言服务或项目原生工具完成同等证据，不得伪造结果。
 
@@ -81,15 +81,13 @@ description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码
 4. CodeGraph 与本地源码不一致时以当前 commit 源码为准，并标记索引可能过期；未完成源码复核时停止。
 5. 展示修改点卡片和未决假设，等待**修改点确认**。确认前不得创建或填写 design。
 
-### 5. 基于修改点创建并评审 design
+### 5. 基于修改点创建并确认 design
 
 1. 只基于已确认修改点创建 OpenSpec design，不在 design 阶段重新猜测实现位置。
 2. 在 design 中逐项引用修改点卡片的文件、符号、变量和数据流事实，并说明变量从什么值变成什么行为。
-3. 按 `technical-review-rubric.md` 检查架构、协议、数据、权限、状态流、异常、兼容、迁移、性能、安全、可观测性、灰度和回滚。
-4. 对每个修改点建立双向映射：`scenario -> 文件/符号/变量 -> 测试`，同时检查每个拟改文件和变量是否有对应 scenario。
-5. 明确最小改动边界、保持不变的变量与行为、失败语义和上下游兼容条件。
-6. 按 `realtime-dashboard.md` 将评审当前阶段、未通过结论、证据、精确修改位置和可执行修改建议持续写回 OpenSpec artifacts；结论或阶段变化时立即更新，不能等整轮结束后一次性补写。阻塞问题未解决时停止。
-7. 展示 design 与修改点的逐项对应关系，等待**技术方案确认**。
+3. 对每个修改点建立双向映射：`scenario -> 文件/符号/变量 -> 测试`，同时检查每个拟改文件和变量是否有对应 scenario。
+4. 明确最小改动边界、保持不变的变量与行为、失败语义和上下游兼容条件。
+5. 展示 design 与修改点的逐项对应关系，等待**技术方案确认**。
 
 ### 6. 生成可执行 tasks
 
@@ -136,7 +134,7 @@ description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码
 - 网站是实时观察与可选控制界面，不是执行流程的前置条件或唯一入口。用户完全不操作页面时，仍可用自然语言推进当前 task、在 CR 后提交并推进、切换连续/单独模式；所有操作必须复用页面相同的校验、提交规则和 `cosh-dashboard-control` 元数据，使已打开页面通过 SSE 自动同步。
 - 使用 [`scripts/serve_openspec_dashboard.py`](scripts/serve_openspec_dashboard.py) 读取目标项目，使用 [`assets/dashboard/`](assets/dashboard/) 渲染页面。
 - 默认绑定 `127.0.0.1`，只在用户明确要求共享且确认安全边界后才改变监听地址。
-- 页面展示 change、当前阶段、总体进度、七个人工门禁、修改点卡片、design、评审实时阶段、未通过结论及修改方式、task 完成度、测试证据、风险和最后更新时间。
+- 页面展示 change、当前阶段、总体进度、七个人工门禁、修改点卡片、design、task 完成度、测试证据和最后更新时间；不展示 AI-Spec、稳定性、安全性或可行性评审区域。
 - 一个服务实例扫描项目内全部活动 change；页面顶部提供 Change 切换器，并将选择写入 URL。状态流、文件读取和控制请求必须显式绑定所选 change，禁止跨 change 复用状态或写错 tasks artifact。
 - 总览与详情页提供产物导航；只显示实际存在的类型，点击后在统一只读页面查看全部同类文件。把 Tasks 固定为最右侧入口，并使用区别于普通产物的高识别度颜色，突出其开发主入口地位。
 - 多个修改点分别提供独立 URL；修改点详情页用“规格、Design、Tasks、验证、代码证据”标签按需展示对应 OpenSpec 文件。
@@ -173,6 +171,7 @@ description: 在产品需求澄清后，使用 OpenSpec 管理从规格、代码
 - 已确认调用链、接口源文件和生成边界，没有凭名称猜实现。
 - 修改前基线、修改后定点测试和受影响范围验证均有证据或明确未验证原因。
 - 七个人工门禁按当前执行模式执行；连续推进只免除逐 task 人工 CR，不免除异常停止、测试结果和归档确认。
+- 通用流程与观察板均未启动或展示 AI-Spec、稳定性、安全性、可行性评审；字节专版能力未混入本流程。
 - 实时网站直接读取 OpenSpec 并自动刷新；除受控执行授权外保持只读，没有平行状态文件或任意 artifact 编辑能力。
 - 每个修改点都有独立详情页，文件标签映射到正确修改点且拒绝越界读取。
 - 环境工具的结果已作为证据判断，而不是形式化打勾；企业专用工具只在实际可用时调用。

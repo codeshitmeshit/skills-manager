@@ -111,6 +111,8 @@ class RequirementOpenSpecDashboardTest(unittest.TestCase):
         self.assertEqual(status["modification_points"][0]["variable"], "requestID")
         self.assertEqual(len(status["modification_points"]), 2)
         self.assertEqual(status["stage"], "任务实现")
+        self.assertNotIn("reviews", status)
+        self.assertNotIn("ai_spec", status)
 
     def test_documents_are_mapped_to_each_modification_page(self) -> None:
         status = DASHBOARD.build_status(self.root, "live-change")
@@ -209,7 +211,10 @@ class RequirementOpenSpecDashboardTest(unittest.TestCase):
         self.assertIn('params.get("point")', javascript)
         self.assertIn('params.get("artifact")', javascript)
         self.assertIn('aria-label="OpenSpec 产物导航"', javascript)
-        self.assertIn('["proposal", "spec", "analysis", "design", "review", "validation", "tasks"]', javascript)
+        self.assertIn('["proposal", "spec", "analysis", "design", "validation", "tasks"]', javascript)
+        self.assertNotIn("Live Review", javascript)
+        self.assertNotIn("AI-Spec", javascript)
+        self.assertNotIn("稳定性、安全性与可行性评审", javascript)
         self.assertIn('section === "tasks" ? "task-primary"', javascript)
         self.assertIn(".artifact-nav-link.task-primary", stylesheet)
         self.assertIn("margin-left: auto", stylesheet)
@@ -229,8 +234,8 @@ class RequirementOpenSpecDashboardTest(unittest.TestCase):
             "function renderTaskBoard", 1
         )[0]
         self.assertNotIn("tasks-card", overview_source)
-        self.assertIn("风险点 ·", overview_source)
-        self.assertNotIn("修改点 ·", overview_source)
+        self.assertNotIn("风险点 ·", overview_source)
+        self.assertIn("修改点 ·", overview_source)
         self.assertIn('selectedSection === "tasks" ? renderTaskBoard(data)', javascript)
         self.assertIn('selectedSection === "tasks") bindExecutionControls(data)', javascript)
         task_rows_source = javascript.split("function renderTasks", 1)[1].split(
