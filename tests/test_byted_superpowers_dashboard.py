@@ -820,6 +820,49 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertIn("Superpowers", html)
         self.assertNotIn("change-select", javascript)
 
+    def test_overview_renders_vertical_stepper_and_switches_details_without_writes(
+        self,
+    ) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+let stageClick = null;
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview"),
+  history: { replaceState: () => {} },
+};
+"""
+            + javascript
+            + """
+const initialHtml = appNode.innerHTML;
+document.querySelectorAll = selector => selector === "[data-overview-stage]" ? [{
+  dataset: { overviewStage: "source" },
+  addEventListener: (_event, handler) => { stageClick = handler; },
+}] : [];
+updateControl = () => { throw new Error("overview selection must remain read-only"); };
+render(sampleData);
+stageClick();
+console.log(JSON.stringify({ initialHtml, selectedHtml: appNode.innerHTML }));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertIn('class="overview-workflow"', rendered["initialHtml"])
+        self.assertIn('aria-current="step"', rendered["initialHtml"])
+        self.assertIn("security Reviewer 未通过", rendered["initialHtml"])
+        self.assertIn("技术文档", rendered["selectedHtml"])
+        self.assertIn("允许继续", rendered["selectedHtml"])
+
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(
             self.work / "evidence" / "conversation.json",

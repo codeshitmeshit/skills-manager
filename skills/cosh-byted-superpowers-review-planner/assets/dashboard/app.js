@@ -3,6 +3,7 @@ let latestData = null;
 let availableWorks = [];
 let connectionState = "live";
 let feedback = "";
+let selectedOverviewStage = null;
 
 const stageLabels = {
   source: "技术文档",
@@ -29,6 +30,13 @@ const tabs = [
   ["validation", "验证"],
   ["tasks", "Tasks"],
 ];
+
+const stageStatusMeta = {
+  passed: { label: "已通过", icon: "✓" },
+  running: { label: "进行中", icon: "●" },
+  blocked: { label: "已阻塞", icon: "×" },
+  pending: { label: "等待中", icon: "○" },
+};
 
 const sampleData = {
   work: "optimize-order-risk-check",
@@ -131,10 +139,50 @@ function stageCard(name, stage) {
   return `<article class="stage-card ${escapeHtml(value.status)}"><span>${escapeHtml(stageLabels[name] || name)}</span><strong>${escapeHtml(value.status)}</strong>${(value.blockers || []).length ? `<small>${escapeHtml(value.blockers[0])}</small>` : ""}</article>`;
 }
 
+function normalizedStageStatus(stage) {
+  const status = stage?.status || "pending";
+  return stageStatusMeta[status] ? status : "pending";
+}
+
+function defaultOverviewStage(stages) {
+  if (!stages.length) return null;
+  if (selectedOverviewStage && stages.some(([name]) => name === selectedOverviewStage)) return selectedOverviewStage;
+  const active = stages.find(([, stage]) => stage?.status === "running" || stage?.status === "blocked");
+  const incomplete = stages.find(([, stage]) => stage?.status !== "passed");
+  selectedOverviewStage = (active || incomplete || stages[stages.length - 1])[0];
+  return selectedOverviewStage;
+}
+
+function renderStageStepper(stages, selectedName) {
+  if (!stages.length) return '<section class="stage-stepper panel"><p class="empty">尚无阶段数据</p></section>';
+  return `<ol class="stage-stepper" aria-label="研发流程阶段">${stages.map(([name, stage]) => {
+    const status = normalizedStageStatus(stage);
+    const meta = stageStatusMeta[status];
+    const selected = name === selectedName;
+    const summary = stage?.blockers?.[0] || stage?.fix || meta.label;
+    return `<li class="stage-step-item"><button type="button" class="stage-step ${escapeHtml(status)} ${selected ? "selected" : ""}" data-overview-stage="${escapeHtml(name)}" ${selected ? 'aria-current="step"' : ""}><span class="stage-status-icon" aria-hidden="true">${meta.icon}</span><span class="stage-step-copy"><strong>${escapeHtml(stageLabels[name] || name)}</strong><small>${escapeHtml(summary)}</small></span><span class="stage-status-text">${escapeHtml(stage?.status || "pending")}</span></button></li>`;
+  }).join("")}</ol>`;
+}
+
+function stageDetailRow(label, value, className = "") {
+  return `<div class="stage-detail-row ${className}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || "未记录")}</dd></div>`;
+}
+
+function renderStageDetail(name, stage) {
+  if (!name || !stage) return '<aside class="stage-detail panel"><p class="empty">选择一个阶段查看详情</p></aside>';
+  const status = normalizedStageStatus(stage);
+  const meta = stageStatusMeta[status];
+  const rawStatus = stage.status || "pending";
+  const canAdvance = stage.can_advance === true ? "是" : stage.can_advance === false ? "否" : "未记录";
+  return `<aside class="stage-detail panel ${escapeHtml(status)}"><div class="stage-detail-heading"><div><p class="eyebrow">阶段详情</p><h2>${escapeHtml(stageLabels[name] || name)}</h2></div><span class="stage-detail-status"><i aria-hidden="true">${meta.icon}</i>${escapeHtml(rawStatus)}</span></div><dl>${stageDetailRow("阻塞原因", stage.blockers?.[0], "blocker")}${stageDetailRow("修复建议", stage.fix, "fix")}${stageDetailRow("证据版本", stage.version)}${stageDetailRow("更新时间", stage.updated_at)}${stageDetailRow("允许继续", canAdvance)}</dl></aside>`;
+}
+
 function renderOverview(data) {
   const stages = Object.entries(data.stages || {});
   const current = stages.find(([, stage]) => stage.status === "running" || stage.status === "blocked") || stages.find(([, stage]) => stage.status !== "passed");
-  return `<section class="panel hero"><div><p class="eyebrow">当前阶段</p><h2>${escapeHtml(current ? stageLabels[current[0]] : "已完成")}</h2><p>${escapeHtml(current?.[1]?.fix || current?.[1]?.blockers?.[0] || "等待下一项状态更新")}</p></div><div><strong>Task ${data.tasks_done || 0} / ${data.tasks_total || 0}</strong><div class="progress"><i style="width:${data.tasks_total ? Math.round(data.tasks_done / data.tasks_total * 100) : 0}%"></i></div></div></section><section class="stage-grid">${stages.map(([name, stage]) => stageCard(name, stage)).join("")}</section>`;
+  const selectedName = defaultOverviewStage(stages);
+  const selectedStage = stages.find(([name]) => name === selectedName)?.[1];
+  return `<section class="panel hero"><div><p class="eyebrow">当前阶段</p><h2>${escapeHtml(current ? stageLabels[current[0]] : "已完成")}</h2><p>${escapeHtml(current?.[1]?.fix || current?.[1]?.blockers?.[0] || "等待下一项状态更新")}</p></div><div><strong>Task ${data.tasks_done || 0} / ${data.tasks_total || 0}</strong><div class="progress"><i style="width:${data.tasks_total ? Math.round(data.tasks_done / data.tasks_total * 100) : 0}%"></i></div></div></section><section class="overview-workflow">${renderStageStepper(stages, selectedName)}${renderStageDetail(selectedName, selectedStage)}</section>`;
 }
 
 function reviewerLabel(name) {
@@ -200,6 +248,10 @@ function bindInteractions(data, tab) {
     const url = new URL(window.location.href);
     url.searchParams.set("document", button.dataset.document);
     window.history.replaceState(null, "", url.href);
+    render(data);
+  }));
+  if (tab === "overview") document.querySelectorAll("[data-overview-stage]").forEach(button => button.addEventListener("click", () => {
+    selectedOverviewStage = button.dataset.overviewStage;
     render(data);
   }));
   if (["source", "spec", "plan"].includes(tab)) loadSelectedDocument(data, tab);
