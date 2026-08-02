@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -11,6 +13,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "cosh-byted-superpowers-review-planner"
 WORKFLOW_PATH = SKILL_DIR / "scripts" / "workflow_state.py"
+TASK_CONTROL_PATH = SKILL_DIR / "scripts" / "task_control.py"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -23,6 +26,7 @@ def load_module(name: str, path: pathlib.Path):
 
 
 WORKFLOW = load_module("byted_workflow_state", WORKFLOW_PATH)
+TASKS = load_module("byted_task_control", TASK_CONTROL_PATH)
 
 
 class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
@@ -40,7 +44,11 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.write_workflow()
 
     def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except OSError:
+            # macOS 的 Git 模板 hook 偶尔会短暂持有临时仓库目录。
+            shutil.rmtree(self.temp_dir.name, ignore_errors=True)
 
     @staticmethod
     def sha256(content: str) -> str:
@@ -146,6 +154,53 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.write_codegraph()
         for reviewer in WORKFLOW.REQUIRED_REVIEWERS:
             self.write_review(reviewer)
+
+    def write_plan(self, content: str) -> pathlib.Path:
+        path = (
+            self.root
+            / "docs"
+            / "superpowers"
+            / "plans"
+            / f"2026-08-02-{self.work_id}.md"
+        )
+        path.write_text(content.strip() + "\n", encoding="utf-8")
+        return path
+
+    def initialize_git(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "codex@example.com"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Codex Test"], cwd=self.root, check=True
+        )
+        (self.root / "baseline.txt").write_text("baseline\n", encoding="utf-8")
+        subprocess.run(["git", "add", "baseline.txt"], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "chore: 初始化"],
+            cwd=self.root,
+            check=True,
+        )
+
+    def stage_file(self, relative: str, content: str = "change\n") -> None:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        subprocess.run(["git", "add", relative], cwd=self.root, check=True)
+
+    def write_task_evidence(self, task_number: int) -> None:
+        snapshot = TASKS.current_snapshot_sha(self.root)
+        for prefix in ("remote-ut", "cr"):
+            self.write_json(
+                self.work / "evidence" / f"{prefix}-task{task_number}.json",
+                {
+                    "status": "passed",
+                    "code_sha": snapshot,
+                    "updated_at": "2026-08-02T11:00:00+08:00",
+                },
+            )
 
     def test_resolve_work_rejects_path_traversal(self) -> None:
         with self.assertRaises(WORKFLOW.DashboardError):
@@ -258,6 +313,191 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         status = WORKFLOW.build_status(self.root, self.work_id)
         self.assertEqual(status["stages"]["knowledge_gate"]["status"], "blocked")
         self.assertIn("JSON", " ".join(status["stages"]["knowledge_gate"]["blockers"]))
+
+    def test_native_plan_tasks_expose_files_interfaces_and_steps(self) -> None:
+        plan = self.write_plan(
+            """
+# Plan
+
+### Task 1: 增加重试保护
+
+**Files:**
+- Modify: `internal/order/risk.go:40-70`
+- Test: `internal/order/risk_test.go`
+
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+
+- [ ] **Step 1: 增加失败测试**
+
+### Task 2: 增加指标
+
+**Files:**
+- Create: `internal/order/metric.go`
+
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+
+- [ ] **Step 1: 增加指标**
+"""
+        )
+        tasks = TASKS.parse_superpowers_plan(plan)
+        self.assertEqual([task["number"] for task in tasks], [1, 2])
+        self.assertEqual(
+            tasks[0]["allowed_files"],
+            ["internal/order/risk.go", "internal/order/risk_test.go"],
+        )
+        self.assertIn("shouldSkip", tasks[0]["interfaces"][0])
+        self.assertEqual(tasks[0]["steps"][0]["title"], "增加失败测试")
+
+    def test_scope_rejects_unrelated_staged_file(self) -> None:
+        self.initialize_git()
+        self.stage_file("internal/order/risk.go")
+        self.stage_file("internal/order/unrelated.go")
+        task = {"allowed_files": ["internal/order/risk.go"]}
+        self.assertEqual(
+            TASKS.validate_task_scope(self.root, task),
+            ["internal/order/unrelated.go"],
+        )
+
+    def test_commit_message_is_conventional_chinese_and_task_scoped(self) -> None:
+        message = TASKS.format_task_commit(
+            self.work_id, 1, "feat", "增加内部重试判断"
+        )
+        self.assertEqual(
+            message,
+            "feat: 增加内部重试判断\n\noptimize-order-risk-check-task1",
+        )
+        with self.assertRaises(TASKS.TaskControlError):
+            TASKS.format_task_commit(self.work_id, 1, "feature", "add retry")
+
+    def test_advance_requires_remote_ut_and_cr_for_current_snapshot(self) -> None:
+        self.initialize_git()
+        self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.stage_file("internal/order/risk.go")
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+        with self.assertRaises(TASKS.TaskControlConflict):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=1,
+                commit_type="feat",
+                summary="增加内部重试判断",
+            )
+
+    def test_advance_commits_current_scope_then_unlocks_next_task(self) -> None:
+        self.initialize_git()
+        self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.stage_file("internal/order/risk.go")
+        self.write_task_evidence(1)
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+        result = TASKS.advance_task(
+            self.root,
+            self.work_id,
+            expected_version=version,
+            expected_task=1,
+            commit_type="feat",
+            summary="增加内部重试判断",
+        )
+        subject = subprocess.run(
+            ["git", "log", "-1", "--pretty=%s"],
+            cwd=self.root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        body = subprocess.run(
+            ["git", "log", "-1", "--pretty=%b"],
+            cwd=self.root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        self.assertEqual(subject, "feat: 增加内部重试判断")
+        self.assertEqual(body.splitlines()[0], f"{self.work_id}-task1")
+        self.assertEqual(result["completed_task"], 1)
+        self.assertEqual(result["next_task"], 2)
+
+    def test_continuous_mode_rejects_manual_advance(self) -> None:
+        self.initialize_git()
+        self.write_workflow(mode="continuous")
+        self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.stage_file("internal/order/risk.go")
+        self.write_task_evidence(1)
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+        with self.assertRaises(TASKS.TaskControlConflict):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=1,
+                commit_type="feat",
+                summary="增加内部重试判断",
+            )
+
+    def test_status_exposes_current_task_scope_and_advance_gate(self) -> None:
+        self.initialize_git()
+        self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.stage_file("internal/order/risk.go")
+        self.write_task_evidence(1)
+        status = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(status["tasks_total"], 2)
+        self.assertEqual(status["current_task"]["number"], 1)
+        self.assertEqual(
+            status["current_task"]["allowed_files"], ["internal/order/risk.go"]
+        )
+        self.assertTrue(status["current_task"]["can_advance"])
 
 
 if __name__ == "__main__":

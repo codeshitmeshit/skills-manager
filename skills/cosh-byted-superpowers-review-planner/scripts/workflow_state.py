@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import logging
 from pathlib import Path
@@ -363,6 +364,26 @@ def _state_version(work_dir: Path) -> str:
     return digest.hexdigest()[:16]
 
 
+def _project_tasks(project_root: Path, work_id: str) -> dict[str, Any]:
+    module_path = Path(__file__).with_name("task_control.py")
+    spec = importlib.util.spec_from_file_location("byted_task_projection", module_path)
+    if spec is None or spec.loader is None:
+        return {"tasks": [], "tasks_total": 0, "tasks_done": 0, "current_task": None}
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        return module.project_task_status(project_root, work_id)
+    except module.TaskControlError as error:
+        LOGGER.info("开发任务 %s 尚无可投影计划：%s", work_id, error)
+        return {
+            "tasks": [],
+            "tasks_total": 0,
+            "tasks_done": 0,
+            "current_task": None,
+            "task_error": str(error),
+        }
+
+
 def build_status(project_root: Path, work_id: str | None = None) -> dict[str, Any]:
     work_dir = resolve_work(project_root, work_id)
     workflow: dict[str, Any] = {}
@@ -403,6 +424,27 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         fix="恢复 AI-Spec 并确认当前评审闭环" if spec_blockers else "生成 Superpowers 规格",
         can_advance=not spec_blockers,
     )
+    task_projection = _project_tasks(project_root, work_dir.name)
+    if task_projection["tasks_total"]:
+        plan_blockers = []
+        if closure_stage["status"] != "passed":
+            plan_blockers.append("评审闭环尚未通过，当前计划不能执行")
+        stages["plan"] = _stage(
+            "blocked" if plan_blockers else "passed",
+            plan_blockers,
+            version=task_projection.get("plan"),
+            can_advance=not plan_blockers,
+        )
+        stages["implementation"] = _stage(
+            "passed" if task_projection["tasks_done"] == task_projection["tasks_total"] else "running",
+            [],
+            version=f"{task_projection['tasks_done']}/{task_projection['tasks_total']}",
+            can_advance=bool(
+                task_projection.get("current_task", {}).get("can_advance")
+                if task_projection.get("current_task")
+                else False
+            ),
+        )
 
     return {
         "work": work_dir.name,
@@ -416,6 +458,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         },
         "codegraph": codegraph,
         "reviews": reviews,
+        **task_projection,
     }
 
 
