@@ -197,6 +197,68 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         path.write_text(content.strip() + "\n", encoding="utf-8")
         return path
 
+    def write_global_prerequisites(self, plan: pathlib.Path) -> None:
+        self.write_complete_review_round()
+        self.write_json(
+            self.work / "evidence" / "review-closure.json",
+            {
+                **self.current_binding(),
+                "status": "passed",
+                "review_round": 1,
+                "updated_at": "2026-08-02T10:30:00+08:00",
+            },
+        )
+        spec_path = (
+            self.root
+            / "docs"
+            / "superpowers"
+            / "specs"
+            / f"2026-08-02-{self.work_id}-design.md"
+        )
+        spec_content = "# 订单风控优化规格\n"
+        spec_path.write_text(spec_content, encoding="utf-8")
+        spec_sha = self.sha256(spec_content)
+        self.write_json(
+            self.work / "evidence" / "spec.json",
+            {
+                **self.current_binding(),
+                "status": "passed",
+                "path": str(spec_path.relative_to(self.root)),
+                "sha256": spec_sha,
+                "updated_at": "2026-08-02T10:40:00+08:00",
+            },
+        )
+        self.write_json(
+            self.work / "evidence" / "location.json",
+            {
+                **self.current_binding(),
+                "status": "passed",
+                "spec_sha256": spec_sha,
+                "code_sha": "code-sha",
+                "locations": [
+                    {
+                        "file": "internal/order/risk.go",
+                        "symbol": "shouldSkip",
+                        "variable": "riskScene",
+                        "type": "model.RiskScene",
+                    }
+                ],
+                "updated_at": "2026-08-02T10:45:00+08:00",
+            },
+        )
+        plan_content = plan.read_text(encoding="utf-8")
+        self.write_json(
+            self.work / "evidence" / "plan.json",
+            {
+                **self.current_binding(),
+                "status": "passed",
+                "path": str(plan.relative_to(self.root)),
+                "sha256": self.sha256(plan_content),
+                "code_sha": "code-sha",
+                "updated_at": "2026-08-02T10:50:00+08:00",
+            },
+        )
+
     def initialize_git(self) -> None:
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         subprocess.run(
@@ -220,6 +282,15 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         subprocess.run(["git", "add", relative], cwd=self.root, check=True)
+
+    def git_head(self) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
 
     def write_task_evidence(self, task_number: int) -> None:
         snapshot = TASKS.current_snapshot_sha(self.root)
@@ -430,7 +501,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 
     def test_advance_requires_remote_ut_and_cr_for_current_snapshot(self) -> None:
         self.initialize_git()
-        self.write_plan(
+        plan = self.write_plan(
             """
 ### Task 1: 增加重试保护
 **Files:**
@@ -440,6 +511,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 - [ ] **Step 1: 实现保护**
 """
         )
+        self.write_global_prerequisites(plan)
         self.stage_file("internal/order/risk.go")
         version = WORKFLOW.build_status(self.root, self.work_id)["version"]
         with self.assertRaises(TASKS.TaskControlConflict):
@@ -454,7 +526,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 
     def test_advance_commits_current_scope_then_unlocks_next_task(self) -> None:
         self.initialize_git()
-        self.write_plan(
+        plan = self.write_plan(
             """
 ### Task 1: 增加重试保护
 **Files:**
@@ -471,6 +543,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 - [ ] **Step 1: 实现指标**
 """
         )
+        self.write_global_prerequisites(plan)
         self.stage_file("internal/order/risk.go")
         self.write_task_evidence(1)
         version = WORKFLOW.build_status(self.root, self.work_id)["version"]
@@ -504,7 +577,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
     def test_continuous_mode_rejects_manual_advance(self) -> None:
         self.initialize_git()
         self.write_workflow(mode="continuous")
-        self.write_plan(
+        plan = self.write_plan(
             """
 ### Task 1: 增加重试保护
 **Files:**
@@ -514,6 +587,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 - [ ] **Step 1: 实现保护**
 """
         )
+        self.write_global_prerequisites(plan)
         self.stage_file("internal/order/risk.go")
         self.write_task_evidence(1)
         version = WORKFLOW.build_status(self.root, self.work_id)["version"]
@@ -529,7 +603,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 
     def test_status_exposes_current_task_scope_and_advance_gate(self) -> None:
         self.initialize_git()
-        self.write_plan(
+        plan = self.write_plan(
             """
 ### Task 1: 增加重试保护
 **Files:**
@@ -546,6 +620,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
 - [ ] **Step 1: 实现指标**
 """
         )
+        self.write_global_prerequisites(plan)
         self.stage_file("internal/order/risk.go")
         self.write_task_evidence(1)
         status = WORKFLOW.build_status(self.root, self.work_id)
@@ -555,6 +630,39 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             status["current_task"]["allowed_files"], ["internal/order/risk.go"]
         )
         self.assertTrue(status["current_task"]["can_advance"])
+
+    def test_advance_rejects_when_global_plan_gate_is_blocked(self) -> None:
+        self.initialize_git()
+        self.write_plan(
+            """
+# Implementation Plan
+
+### Task 1: 修改风险判断
+
+**Files:**
+- Modify: `internal/order/risk.go`
+
+**Interfaces:**
+- Produces: `shouldCheckRisk(scene RiskScene) bool`
+
+- [ ] **Step 1: 实现风险判断**
+"""
+        )
+        self.stage_file("internal/order/risk.go")
+        self.write_task_evidence(1)
+        version = TASKS.work_state_version(self.work)
+
+        with self.assertRaises(TASKS.TaskControlConflict) as context:
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=1,
+                commit_type="feat",
+                summary="增加风险判断",
+            )
+
+        self.assertIn("全局计划门禁", str(context.exception))
 
     def test_works_endpoint_and_work_query_replace_changes(self) -> None:
         another = self.root / ".superpowers" / "byted-work" / "add-audit-log"
@@ -614,6 +722,24 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             self.get_json(server, f"/api/status?work={self.work_id}")["mode"],
             "continuous",
         )
+
+    def test_control_endpoint_replays_same_idempotency_key_without_conflict(self) -> None:
+        server = self.start_server()
+        before = self.get_json(server, f"/api/status?work={self.work_id}")
+        request = {
+            "action": "set-mode",
+            "work": self.work_id,
+            "mode": "continuous",
+            "expected_version": before["version"],
+            "idempotency_key": "mode-replay-1",
+        }
+        first_code, first = self.post_json(server, "/api/control", request)
+        second_code, second = self.post_json(server, "/api/control", request)
+
+        self.assertEqual(first_code, 200)
+        self.assertEqual(second_code, 200)
+        self.assertEqual(second["mode"], "continuous")
+        self.assertEqual(second["version"], first["version"])
 
     def test_stale_control_write_returns_conflict(self) -> None:
         server = self.start_server()
@@ -801,6 +927,89 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             )
         )
         self.assertEqual(len(archives), 1)
+
+    def prepare_completed_implementation(self) -> str:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [x] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        head = self.git_head()
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": head},
+        )
+        return head
+
+    def write_final_remote_ut(self, code_sha: str, prepare_only: bool = False) -> None:
+        self.write_json(
+            self.work / "evidence" / "remote-ut-final.json",
+            {
+                "status": "passed",
+                "code_sha": code_sha,
+                "prepare_only": prepare_only,
+                "meta": {"remote": {"run_success": True}},
+                "summary": {
+                    "has_failures": False,
+                    "failed_packages": 0,
+                    "failed_tests": 0,
+                },
+                "updated_at": "2026-08-02T15:00:00+08:00",
+            },
+        )
+
+    def write_final_review(self, code_sha: str) -> None:
+        self.write_json(
+            self.work / "evidence" / "final-review.json",
+            {
+                "status": "passed",
+                "code_sha": code_sha,
+                "blocking_findings": [],
+                "updated_at": "2026-08-02T15:10:00+08:00",
+            },
+        )
+
+    def test_push_requires_current_head_remote_ut_and_final_review(self) -> None:
+        head = self.prepare_completed_implementation()
+        self.write_final_remote_ut("stale-sha")
+        self.write_final_review(head)
+        status = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(status["stages"]["remote_ut"]["status"], "blocked")
+        self.assertFalse(status["stages"]["push"]["can_advance"])
+        self.assertIn("代码 SHA", " ".join(status["stages"]["remote_ut"]["blockers"]))
+
+    def test_prepare_only_remote_ut_cannot_pass(self) -> None:
+        head = self.prepare_completed_implementation()
+        self.write_final_remote_ut(head, prepare_only=True)
+        status = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(status["stages"]["remote_ut"]["status"], "blocked")
+        self.assertIn("PREPARE_ONLY", " ".join(status["stages"]["remote_ut"]["blockers"]))
+
+    def test_push_gate_passes_only_after_current_evidence_and_push_record(self) -> None:
+        head = self.prepare_completed_implementation()
+        self.write_final_remote_ut(head)
+        self.write_final_review(head)
+        ready = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertTrue(ready["stages"]["push"]["can_advance"])
+        self.assertNotEqual(ready["stages"]["push"]["status"], "passed")
+        self.write_json(
+            self.work / "evidence" / "push.json",
+            {
+                "status": "passed",
+                "code_sha": head,
+                "remote": "origin",
+                "updated_at": "2026-08-02T15:30:00+08:00",
+            },
+        )
+        pushed = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(pushed["stages"]["push"]["status"], "passed")
 
 
 if __name__ == "__main__":

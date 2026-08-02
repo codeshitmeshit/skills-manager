@@ -11,6 +11,7 @@ import mimetypes
 import os
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -32,6 +33,7 @@ import archive_work  # noqa: E402
 LOGGER = logging.getLogger("byted-superpowers-dashboard")
 ASSET_DIR = SCRIPT_DIR.parent / "assets" / "dashboard"
 MAX_REQUEST_BYTES = 1024 * 1024
+CONTROL_LOCK = threading.Lock()
 
 
 def _json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -199,7 +201,45 @@ def _request_source_revision(
     return build_status(project_root, work_id)
 
 
-def apply_control(project_root: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+def _control_request_hash(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        dict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_control(work_dir: Path) -> dict[str, Any]:
+    path = work_dir / "control.json"
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise workflow_state.DashboardConflict("控制状态损坏，拒绝继续写入") from error
+    if not isinstance(value, dict):
+        raise workflow_state.DashboardConflict("控制状态格式无效，拒绝继续写入")
+    return value
+
+
+def _record_idempotency(
+    work_dir: Path, key: str, action: str, request_hash: str
+) -> None:
+    control = _load_control(work_dir)
+    records = control.setdefault("idempotency", {})
+    if not isinstance(records, dict):
+        raise workflow_state.DashboardConflict("幂等状态格式无效，拒绝继续写入")
+    records[key] = {
+        "action": action,
+        "request_hash": request_hash,
+        "recorded_at": _iso_now(),
+    }
+    control["updated_at"] = _iso_now()
+    _atomic_write_json(work_dir / "control.json", control)
+
+
+def _apply_control_locked(
+    project_root: Path, payload: Mapping[str, Any]
+) -> dict[str, Any]:
     action = payload.get("action")
     work_id = payload.get("work")
     expected_version = payload.get("expected_version")
@@ -210,9 +250,22 @@ def apply_control(project_root: Path, payload: Mapping[str, Any]) -> dict[str, A
         raise workflow_state.DashboardError("缺少 expected_version")
     if not isinstance(idempotency_key, str) or not idempotency_key:
         raise workflow_state.DashboardError("缺少 idempotency_key")
+    work_dir = workflow_state.resolve_work(project_root, work_id)
+    request_hash = _control_request_hash(payload)
+    control = _load_control(work_dir)
+    records = control.get("idempotency", {})
+    if records and not isinstance(records, dict):
+        raise workflow_state.DashboardConflict("幂等状态格式无效，拒绝继续写入")
+    previous = records.get(idempotency_key) if isinstance(records, dict) else None
+    if previous is not None:
+        if not isinstance(previous, dict) or previous.get("request_hash") != request_hash:
+            raise workflow_state.DashboardConflict("幂等键已被其他控制请求使用")
+        LOGGER.info("复用控制请求结果：work=%s action=%s", work_id, action)
+        return build_status(project_root, work_id)
+
     if action == "set-mode":
-        return _set_mode(project_root, work_id, expected_version, str(payload.get("mode")))
-    if action == "advance-next":
+        _set_mode(project_root, work_id, expected_version, str(payload.get("mode")))
+    elif action == "advance-next":
         task_number = payload.get("expected_task")
         if not isinstance(task_number, int):
             raise workflow_state.DashboardError("expected_task 必须是整数")
@@ -224,16 +277,24 @@ def apply_control(project_root: Path, payload: Mapping[str, Any]) -> dict[str, A
             commit_type=str(payload.get("commit_type", "feat")),
             summary=str(payload.get("summary", "")),
         )
-        return build_status(project_root, work_id)
-    if action == "request-source-revision":
-        return _request_source_revision(project_root, work_id, expected_version)
-    if action == "archive":
+    elif action == "request-source-revision":
+        _request_source_revision(project_root, work_id, expected_version)
+    elif action == "archive":
         before = workflow_state.build_status(project_root, work_id)
         if before["version"] != expected_version:
             raise workflow_state.DashboardConflict("开发任务状态已经变化，请刷新后重试")
         archive_work.archive_work(project_root, work_id, "manual")
-        return build_status(project_root, work_id)
-    raise workflow_state.DashboardError(f"不支持的控制动作：{action}")
+    else:
+        raise workflow_state.DashboardError(f"不支持的控制动作：{action}")
+
+    # 只在动作成功后落盘，网络重试不会重复提交或重复归档。
+    _record_idempotency(work_dir, idempotency_key, str(action), request_hash)
+    return build_status(project_root, work_id)
+
+
+def apply_control(project_root: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+    with CONTROL_LOCK:
+        return _apply_control_locked(project_root, payload)
 
 
 def make_handler(

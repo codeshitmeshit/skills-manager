@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import logging
 import re
@@ -330,6 +331,26 @@ def _validate_task_evidence(
             raise TaskControlConflict(f"Task {task_number} 的{label}证据已过期")
 
 
+def _validate_global_plan_gate(project_root: Path, work_id: str) -> None:
+    """复用观察板状态机，确保自然语言入口与页面入口执行同一套硬门禁。"""
+    module_path = Path(__file__).with_name("workflow_state.py")
+    spec = importlib.util.spec_from_file_location(
+        "byted_workflow_advance_guard", module_path
+    )
+    if spec is None or spec.loader is None:
+        raise TaskControlConflict("无法加载全局计划门禁")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        status = module.build_status(project_root, work_id)
+    except module.DashboardError as error:
+        raise TaskControlConflict(f"全局计划门禁读取失败：{error}") from error
+    plan_stage = status.get("stages", {}).get("plan", {})
+    if plan_stage.get("status") != "passed":
+        blockers = plan_stage.get("blockers") or ["规格、精确位置或计划尚未通过"]
+        raise TaskControlConflict("全局计划门禁未通过：" + "；".join(blockers))
+
+
 def advance_task(
     project_root: Path,
     work_id: str,
@@ -343,6 +364,8 @@ def advance_task(
     actual_version = work_state_version(work_dir)
     if expected_version != actual_version:
         raise TaskControlConflict("开发任务状态已经变化，请刷新后重试")
+
+    _validate_global_plan_gate(project_root, work_id)
 
     workflow = _read_json(work_dir / "workflow.json")
     if workflow.get("mode", "single") != "single":

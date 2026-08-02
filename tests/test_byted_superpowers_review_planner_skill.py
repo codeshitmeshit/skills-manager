@@ -42,7 +42,7 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
             "references/byted-coding-remote-ut.md",
             "references/realtime-dashboard.md",
             "references/code-authoring-standards.md",
-            "references/codegraph-modification-point.md",
+            "references/codegraph-implementation-location.md",
             "references/implementation-accuracy.md",
         ):
             with self.subTest(path=relative):
@@ -147,6 +147,18 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("name: cosh-requirement-review-planner", generic_skill)
         self.assertIn("OpenSpec", generic_skill)
         self.assertNotIn("cosh-byted-superpowers-review-planner", generic_skill)
+
+    def test_byted_skill_has_no_legacy_framework_residue(self) -> None:
+        for path in BYTED_DIR.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            content = path.read_text(encoding="utf-8", errors="ignore").lower()
+            self.assertNotIn("openspec", content, str(path))
+
+    def test_every_direct_markdown_resource_link_exists(self) -> None:
+        for relative in re.findall(r"\]\((references/[^)]+|scripts/[^)]+)\)", self.skill):
+            with self.subTest(path=relative):
+                self.assertTrue((BYTED_DIR / relative).is_file(), relative)
 
 
 if __name__ == "__main__":

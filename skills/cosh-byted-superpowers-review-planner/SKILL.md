@@ -13,7 +13,7 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 
 - 开始流程或判断阶段前，完整读取 [`references/superpowers-workflow.md`](references/superpowers-workflow.md)。
 - 启动 AI-Spec、CodeGraph 或三路评审前，完整读取 [`references/byted-admission-review.md`](references/byted-admission-review.md)。
-- 分析仓库和精确定位时，完整读取 [`references/implementation-accuracy.md`](references/implementation-accuracy.md) 与 [`references/codegraph-modification-point.md`](references/codegraph-modification-point.md)。
+- 分析仓库和精确定位时，完整读取 [`references/implementation-accuracy.md`](references/implementation-accuracy.md) 与 [`references/codegraph-implementation-location.md`](references/codegraph-implementation-location.md)。
 - 生成计划、编码或 CR 前，完整读取 [`references/code-authoring-standards.md`](references/code-authoring-standards.md)。
 - 编码或测试前，完整读取 [`references/byted-coding-remote-ut.md`](references/byted-coding-remote-ut.md)。
 - 启动或解释观察板前，完整读取 [`references/realtime-dashboard.md`](references/realtime-dashboard.md)。

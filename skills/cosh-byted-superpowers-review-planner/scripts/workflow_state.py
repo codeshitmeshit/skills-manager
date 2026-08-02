@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import logging
+import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -384,6 +385,235 @@ def _project_tasks(project_root: Path, work_id: str) -> dict[str, Any]:
         }
 
 
+def _current_head(project_root: Path) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=project_root,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=15,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _validate_project_artifact(
+    project_root: Path, evidence: Mapping[str, Any]
+) -> tuple[Path | None, list[str]]:
+    blockers: list[str] = []
+    relative = evidence.get("path")
+    if not isinstance(relative, str) or not relative:
+        return None, ["产物证据缺少 path"]
+    root = project_root.resolve()
+    path = (root / relative).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return None, ["产物路径越界"]
+    if not path.is_file():
+        blockers.append(f"产物不存在：{relative}")
+        return path, blockers
+    expected = evidence.get("sha256")
+    if not isinstance(expected, str) or _sha256_file(path) != expected:
+        blockers.append(f"产物 SHA-256 已失效：{relative}")
+    return path, blockers
+
+
+def _project_spec(
+    project_root: Path,
+    work_dir: Path,
+    source: Mapping[str, Any],
+    knowledge: Mapping[str, Any],
+    closure_stage: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        evidence = _read_json(work_dir / "evidence" / "spec.json")
+    except DashboardError as error:
+        if closure_stage["status"] != "passed":
+            return {}, _stage("pending", ["评审闭环尚未通过"])
+        return {}, _stage("blocked", [str(error)], fix="生成并确认 Superpowers 规格")
+    blockers: list[str] = []
+    if closure_stage["status"] != "passed":
+        blockers.append("评审闭环尚未通过，已有规格证据不可使用")
+    if knowledge.get("mode") != "loaded":
+        blockers.append("AI-Spec 仍处于通用规则降级模式")
+    if not _matches_source(evidence, source):
+        blockers.append("规格证据与当前技术文档不一致")
+    if evidence.get("status") != "passed":
+        blockers.append("Superpowers 规格尚未通过书面确认")
+    _, artifact_blockers = _validate_project_artifact(project_root, evidence)
+    blockers.extend(artifact_blockers)
+    return evidence, _stage(
+        "blocked" if blockers else "passed",
+        blockers,
+        fix="重新生成并确认当前版本 Superpowers 规格" if blockers else "",
+        version=evidence.get("sha256"),
+        updated_at=str(evidence.get("updated_at", "")),
+        can_advance=not blockers,
+    )
+
+
+def _project_location(
+    work_dir: Path,
+    source: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    spec_stage: Mapping[str, Any],
+    codegraph: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        evidence = _read_json(work_dir / "evidence" / "location.json")
+    except DashboardError as error:
+        if spec_stage["status"] != "passed":
+            return {}, _stage("pending", ["Superpowers 规格尚未通过"])
+        return {}, _stage("blocked", [str(error)], fix="补齐变量级精确实施位置")
+    blockers: list[str] = []
+    if spec_stage["status"] != "passed":
+        blockers.append("Superpowers 规格尚未通过，已有定位证据不可使用")
+    if not _matches_source(evidence, source):
+        blockers.append("精确定位与当前技术文档不一致")
+    if evidence.get("status") != "passed":
+        blockers.append("精确实施定位尚未通过")
+    if evidence.get("spec_sha256") != spec.get("sha256"):
+        blockers.append("精确定位与当前规格 SHA-256 不一致")
+    if evidence.get("code_sha") != codegraph.get("code_sha"):
+        blockers.append("精确定位与 CodeGraph 代码 SHA 不一致")
+    locations = evidence.get("locations")
+    required = {"file", "symbol", "variable", "type"}
+    if not isinstance(locations, list) or not locations or any(
+        not isinstance(item, dict) or not required.issubset(item) for item in locations
+    ):
+        blockers.append("精确定位必须包含文件、符号、变量和类型")
+    return evidence, _stage(
+        "blocked" if blockers else "passed",
+        blockers,
+        fix="重新执行规格与源码的变量级定位校验" if blockers else "",
+        version=evidence.get("code_sha"),
+        updated_at=str(evidence.get("updated_at", "")),
+        can_advance=not blockers,
+    )
+
+
+def _project_plan(
+    project_root: Path,
+    work_dir: Path,
+    source: Mapping[str, Any],
+    location: Mapping[str, Any],
+    location_stage: Mapping[str, Any],
+    task_projection: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        evidence = _read_json(work_dir / "evidence" / "plan.json")
+    except DashboardError as error:
+        if location_stage["status"] != "passed":
+            return {}, _stage("pending", ["精确实施定位尚未通过"])
+        return {}, _stage("blocked", [str(error)], fix="生成并确认 Superpowers 实施计划")
+    blockers: list[str] = []
+    if location_stage["status"] != "passed":
+        blockers.append("精确实施定位尚未通过，已有计划证据不可使用")
+    if not _matches_source(evidence, source):
+        blockers.append("计划证据与当前技术文档不一致")
+    if evidence.get("status") != "passed":
+        blockers.append("Superpowers 实施计划尚未确认")
+    if evidence.get("code_sha") != location.get("code_sha"):
+        blockers.append("计划与精确定位代码 SHA 不一致")
+    _, artifact_blockers = _validate_project_artifact(project_root, evidence)
+    blockers.extend(artifact_blockers)
+    if not task_projection.get("tasks_total"):
+        blockers.append("计划没有可执行实施子任务")
+    return evidence, _stage(
+        "blocked" if blockers else "passed",
+        blockers,
+        fix="重新生成无占位、可验证的 Superpowers 计划" if blockers else "",
+        version=evidence.get("sha256"),
+        updated_at=str(evidence.get("updated_at", "")),
+        can_advance=not blockers,
+    )
+
+
+def _project_final_delivery(
+    project_root: Path,
+    work_dir: Path,
+    implementation_stage: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    head = _current_head(project_root)
+    remote: dict[str, Any] = {}
+    remote_blockers: list[str] = []
+    try:
+        remote = _read_json(work_dir / "evidence" / "remote-ut-final.json")
+    except DashboardError as error:
+        remote_blockers.append(str(error))
+    if implementation_stage["status"] != "passed":
+        remote_blockers.append("实施子任务尚未全部通过")
+    if remote:
+        if remote.get("status") != "passed":
+            remote_blockers.append("完整远程 UT 尚未通过")
+        if not head or remote.get("code_sha") != head:
+            remote_blockers.append("完整远程 UT 的代码 SHA 与当前 HEAD 不一致")
+        if remote.get("prepare_only") is True:
+            remote_blockers.append("PREPARE_ONLY 不能作为远程 UT 通过证据")
+        meta = remote.get("meta", {})
+        summary = remote.get("summary", {})
+        if not isinstance(meta, dict) or not isinstance(meta.get("remote"), dict) or meta["remote"].get("run_success") is not True:
+            remote_blockers.append("远程 UT 缺少 meta.remote.run_success=true")
+        if not isinstance(summary, dict) or summary.get("has_failures") is not False:
+            remote_blockers.append("远程 UT summary.has_failures 不是 false")
+        if summary.get("failed_packages") != 0 or summary.get("failed_tests") != 0:
+            remote_blockers.append("远程 UT 仍有失败 package 或测试")
+    remote_stage = _stage(
+        "blocked" if remote_blockers else "passed",
+        remote_blockers,
+        fix="对当前 HEAD 重新运行完整 BITS 远程 UT" if remote_blockers else "",
+        version=remote.get("code_sha"),
+        updated_at=str(remote.get("updated_at", "")),
+        can_advance=not remote_blockers,
+    )
+
+    final_review: dict[str, Any] = {}
+    review_blockers: list[str] = []
+    try:
+        final_review = _read_json(work_dir / "evidence" / "final-review.json")
+    except DashboardError as error:
+        review_blockers.append(str(error))
+    if remote_stage["status"] != "passed":
+        review_blockers.append("完整远程 UT 尚未通过")
+    if final_review:
+        if final_review.get("status") != "passed":
+            review_blockers.append("最终 CR 尚未通过")
+        if not head or final_review.get("code_sha") != head:
+            review_blockers.append("最终 CR 的代码 SHA 与当前 HEAD 不一致")
+        if final_review.get("blocking_findings"):
+            review_blockers.append("最终 CR 仍有阻塞问题")
+    final_review_stage = _stage(
+        "blocked" if review_blockers else "passed",
+        review_blockers,
+        fix="修复问题后对当前 HEAD 重新执行最终 CR" if review_blockers else "",
+        version=final_review.get("code_sha"),
+        updated_at=str(final_review.get("updated_at", "")),
+        can_advance=not review_blockers,
+    )
+
+    push: dict[str, Any] = {}
+    try:
+        push = _read_json(work_dir / "evidence" / "push.json")
+    except DashboardError:
+        pass
+    push_blockers: list[str] = []
+    if final_review_stage["status"] != "passed":
+        push_blockers.append("最终 CR 尚未通过")
+    if push and (push.get("status") != "passed" or push.get("code_sha") != head):
+        push_blockers.append("Push 证据与当前 HEAD 不一致")
+    push_passed = bool(push) and not push_blockers
+    push_stage = _stage(
+        "passed" if push_passed else ("blocked" if push_blockers else "pending"),
+        push_blockers,
+        fix="完成当前 HEAD 的最终门禁后执行普通 push" if push_blockers else "执行普通 push",
+        version=push.get("code_sha"),
+        updated_at=str(push.get("updated_at", "")),
+        can_advance=not push_blockers and not push_passed,
+    )
+    return remote_stage, final_review_stage, push_stage
+
+
 def build_status(project_root: Path, work_id: str | None = None) -> dict[str, Any]:
     work_dir = resolve_work(project_root, work_id)
     workflow: dict[str, Any] = {}
@@ -412,39 +642,56 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         }
     )
 
-    # 降级评审可以发现风险，但在 AI-Spec 恢复前不能生成正式规格。
-    spec_blockers: list[str] = []
-    if closure_stage["status"] != "passed":
-        spec_blockers.append("评审闭环尚未通过")
-    if knowledge.get("mode") == "fallback":
-        spec_blockers.append("AI-Spec 仍处于通用规则降级模式")
-    stages["spec"] = _stage(
-        "pending",
-        spec_blockers,
-        fix="恢复 AI-Spec 并确认当前评审闭环" if spec_blockers else "生成 Superpowers 规格",
-        can_advance=not spec_blockers,
-    )
     task_projection = _project_tasks(project_root, work_dir.name)
-    if task_projection["tasks_total"]:
-        plan_blockers = []
-        if closure_stage["status"] != "passed":
-            plan_blockers.append("评审闭环尚未通过，当前计划不能执行")
-        stages["plan"] = _stage(
-            "blocked" if plan_blockers else "passed",
-            plan_blockers,
-            version=task_projection.get("plan"),
-            can_advance=not plan_blockers,
-        )
-        stages["implementation"] = _stage(
-            "passed" if task_projection["tasks_done"] == task_projection["tasks_total"] else "running",
-            [],
-            version=f"{task_projection['tasks_done']}/{task_projection['tasks_total']}",
-            can_advance=bool(
-                task_projection.get("current_task", {}).get("can_advance")
-                if task_projection.get("current_task")
-                else False
-            ),
-        )
+    spec_evidence, spec_stage = _project_spec(
+        project_root, work_dir, source, knowledge, closure_stage
+    )
+    location_evidence, location_stage = _project_location(
+        work_dir, source, spec_evidence, spec_stage, codegraph
+    )
+    plan_evidence, plan_stage = _project_plan(
+        project_root,
+        work_dir,
+        source,
+        location_evidence,
+        location_stage,
+        task_projection,
+    )
+    stages["spec"] = spec_stage
+    stages["location"] = location_stage
+    stages["plan"] = plan_stage
+    implementation_blockers: list[str] = []
+    if plan_stage["status"] != "passed":
+        implementation_blockers.append("Superpowers 计划门禁尚未通过")
+    if not task_projection["tasks_total"]:
+        implementation_status = "pending"
+    elif implementation_blockers:
+        implementation_status = "blocked"
+    elif task_projection["tasks_done"] == task_projection["tasks_total"]:
+        implementation_status = "passed"
+    else:
+        implementation_status = "running"
+    local_task_ready = bool(
+        task_projection.get("current_task", {}).get("can_advance")
+        if task_projection.get("current_task")
+        else False
+    )
+    stages["implementation"] = _stage(
+        implementation_status,
+        implementation_blockers,
+        fix="先闭合规格、定位与计划门禁" if implementation_blockers else "",
+        version=f"{task_projection['tasks_done']}/{task_projection['tasks_total']}",
+        can_advance=not implementation_blockers and local_task_ready,
+    )
+    if task_projection.get("current_task") and implementation_blockers:
+        task_projection["current_task"]["can_advance"] = False
+        task_projection["current_task"]["global_blockers"] = implementation_blockers
+    remote_stage, final_review_stage, push_stage = _project_final_delivery(
+        project_root, work_dir, stages["implementation"]
+    )
+    stages["remote_ut"] = remote_stage
+    stages["final_review"] = final_review_stage
+    stages["push"] = push_stage
     archive: dict[str, Any] = {}
     try:
         archive = _read_json(work_dir / "evidence" / "archive.json")
@@ -475,6 +722,9 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         },
         "codegraph": codegraph,
         "reviews": reviews,
+        "spec_evidence": spec_evidence,
+        "location_evidence": location_evidence,
+        "plan_evidence": plan_evidence,
         "archive": archive,
         **task_projection,
     }
