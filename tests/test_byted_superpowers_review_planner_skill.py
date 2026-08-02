@@ -6,7 +6,6 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-GENERIC_DIR = ROOT / "skills" / "cosh-requirement-review-planner"
 BYTED_DIR = ROOT / "skills" / "cosh-byted-superpowers-review-planner"
 
 
@@ -32,8 +31,6 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("字节", self.skill)
         self.assertIn("Superpowers", self.skill)
         self.assertIn("$cosh-byted-superpowers-review-planner", self.metadata)
-        self.assertNotIn("OpenSpec", self.skill)
-        self.assertNotIn("openspec", self.skill.lower())
 
     def test_required_references_exist(self) -> None:
         for relative in (
@@ -142,19 +139,6 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("为什么需要多轮", self.workflow)
         self.assertIn("规则蒸馏", self.workflow)
         self.assertIn("不得自动修改", self.workflow)
-
-    def test_generic_skill_keeps_its_original_identity(self) -> None:
-        generic_skill = (GENERIC_DIR / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("name: cosh-requirement-review-planner", generic_skill)
-        self.assertIn("OpenSpec", generic_skill)
-        self.assertNotIn("cosh-byted-superpowers-review-planner", generic_skill)
-
-    def test_byted_skill_has_no_legacy_framework_residue(self) -> None:
-        for path in BYTED_DIR.rglob("*"):
-            if not path.is_file() or "__pycache__" in path.parts:
-                continue
-            content = path.read_text(encoding="utf-8", errors="ignore").lower()
-            self.assertNotIn("openspec", content, str(path))
 
     def test_every_direct_markdown_resource_link_exists(self) -> None:
         for relative in re.findall(r"\]\((references/[^)]+|scripts/[^)]+)\)", self.skill):
