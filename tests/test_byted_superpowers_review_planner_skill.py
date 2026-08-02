@@ -86,7 +86,8 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("风险点", self.review)
         self.assertIn("建议修改", self.review)
         self.assertIn("AI-Spec", self.review)
-        self.assertIn("通用规则降级", self.review)
+        self.assertNotIn("通用规则降级", self.review)
+        self.assertIn("直接阻塞", self.review)
 
     def test_document_revision_restarts_the_complete_review(self) -> None:
         self.assertIn("技术文档修改", self.workflow)

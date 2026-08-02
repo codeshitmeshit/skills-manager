@@ -406,7 +406,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertEqual(status["stages"]["review"]["status"], "blocked")
         self.assertIn("代码 SHA", " ".join(status["stages"]["review"]["blockers"]))
 
-    def test_fallback_requires_attempt_and_versioned_generic_rules(self) -> None:
+    def test_fallback_is_blocked_even_with_complete_legacy_evidence(self) -> None:
         self.write_knowledge_gate(
             status="fallback",
             mode="fallback",
@@ -420,15 +420,19 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             self.write_review(reviewer)
         status = WORKFLOW.build_status(self.root, self.work_id)
         self.assertEqual(status["knowledge_gate"]["mode"], "fallback")
-        self.assertEqual(status["stages"]["review"]["status"], "passed")
+        self.assertEqual(status["stages"]["knowledge_gate"]["status"], "blocked")
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
+        self.assertIn(
+            "AI-Spec",
+            " ".join(status["stages"]["knowledge_gate"]["blockers"]),
+        )
         self.assertFalse(status["stages"]["spec"]["can_advance"])
 
-    def test_fallback_without_onboarding_evidence_is_blocked(self) -> None:
+    def test_loaded_mode_without_sources_is_blocked(self) -> None:
         self.write_knowledge_gate(
-            status="fallback",
-            mode="fallback",
-            onboarding_attempted=False,
-            generic_rules_version="2026-08-02",
+            status="passed",
+            mode="loaded",
+            version="1.2.3",
             sources=[],
         )
         status = WORKFLOW.build_status(self.root, self.work_id)

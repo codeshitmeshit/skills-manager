@@ -191,28 +191,18 @@ def _project_knowledge_gate(
         blockers.append("知识证据与当前技术文档版本或 SHA-256 不一致")
     mode = evidence.get("mode")
     status = evidence.get("status")
-    if mode == "loaded":
-        if status != "passed":
-            blockers.append("AI-Spec 尚未通过")
-        if not evidence.get("version") or not evidence.get("sources"):
-            blockers.append("AI-Spec 版本或来源证据不完整")
-    elif mode == "fallback":
-        if status != "fallback":
-            blockers.append("通用规则降级状态无效")
-        if not evidence.get("onboarding_attempted"):
-            blockers.append("通用规则降级缺少自动接入尝试证据")
-        if not evidence.get("onboarding_error"):
-            blockers.append("通用规则降级缺少失败原因")
-        if not evidence.get("generic_rules_version"):
-            blockers.append("通用规则降级缺少规则版本")
-    else:
-        blockers.append("知识模式必须是 loaded 或 fallback")
+    if mode != "loaded":
+        blockers.append("AI-Spec 是唯一允许的知识门禁，必须使用 loaded 模式")
+    if status != "passed":
+        blockers.append("AI-Spec 尚未通过")
+    if not evidence.get("version") or not evidence.get("sources"):
+        blockers.append("AI-Spec 版本或来源证据不完整")
     stage_status = "blocked" if blockers else "passed"
     return evidence, _stage(
         stage_status,
         blockers,
         fix="重新执行知识门禁并记录完整证据" if blockers else "",
-        version=evidence.get("version") or evidence.get("generic_rules_version"),
+        version=evidence.get("version"),
         updated_at=str(evidence.get("updated_at", "")),
         can_advance=not blockers,
     )
@@ -297,6 +287,8 @@ def _project_reviews(
     by_reviewer = {str(item.get("reviewer")): item for item in round_reviews}
     result["reviewers"] = by_reviewer
     blockers = list(errors)
+    if codegraph_stage["status"] != "passed":
+        blockers.append("CodeGraph 前置门禁尚未通过，已有评审证据不可继续使用")
     expected_code_sha = codegraph.get("code_sha")
     for reviewer in REQUIRED_REVIEWERS:
         review = by_reviewer.get(reviewer)
@@ -436,7 +428,7 @@ def _project_spec(
     if closure_stage["status"] != "passed":
         blockers.append("评审闭环尚未通过，已有规格证据不可使用")
     if knowledge.get("mode") != "loaded":
-        blockers.append("AI-Spec 仍处于通用规则降级模式")
+        blockers.append("AI-Spec 知识证据未完整加载")
     if not _matches_source(evidence, source):
         blockers.append("规格证据与当前技术文档不一致")
     if evidence.get("status") != "passed":
@@ -718,7 +710,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         "stages": stages,
         "knowledge_gate": {
             "mode": knowledge.get("mode", "missing"),
-            "version": knowledge.get("version") or knowledge.get("generic_rules_version"),
+            "version": knowledge.get("version"),
         },
         "codegraph": codegraph,
         "reviews": reviews,
