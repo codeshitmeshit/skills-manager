@@ -804,6 +804,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertIn('id="work-select"', javascript)
         self.assertIn("task-nav", styles)
         self.assertIn("Superpowers", html)
+        self.assertNotIn("OpenSpec", javascript + html)
         self.assertNotIn("change-select", javascript)
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
