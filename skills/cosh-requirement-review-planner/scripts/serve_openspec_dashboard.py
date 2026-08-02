@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -27,6 +28,9 @@ POINT_FIELD_RE = re.compile(
     re.MULTILINE,
 )
 CONTROL_RE = re.compile(r"<!--\s*cosh-dashboard-control\s+(\{.*?\})\s*-->", re.DOTALL)
+REVIEW_STATE_RE = re.compile(r"<!--\s*cosh-review-state\s+(\{.*?\})\s*-->", re.DOTALL)
+REVIEW_FINDING_RE = re.compile(r"<!--\s*cosh-review-finding\s+(\{.*?\})\s*-->", re.DOTALL)
+AI_SPEC_EVIDENCE_RE = re.compile(r"<!--\s*cosh-ai-spec-evidence\s+(\{.*?\})\s*-->", re.DOTALL)
 TEXT_SUFFIXES = {".md", ".markdown", ".yaml", ".yml", ".json", ".txt"}
 GATE_NAMES = (
     "规格确认",
@@ -37,6 +41,21 @@ GATE_NAMES = (
     "测试结果确认",
     "最终归档确认",
 )
+REVIEWER_ORDER = ("stability", "security", "feasibility")
+REVIEWER_NAMES = {
+    "stability": "稳定性评审",
+    "security": "安全性评审",
+    "feasibility": "可行性评审",
+}
+AI_SPEC_REQUIRED_ROLES = {
+    "stability_skill",
+    "stability_spec",
+    "security_skill",
+    "security_spec",
+    "general_components",
+    "lark_general_knowledge",
+    "code_review",
+}
 
 
 class DashboardError(RuntimeError):
@@ -166,6 +185,260 @@ def parse_execution_control(text: str) -> dict[str, Any]:
         value["mode"] = "single"
     value["sequence"] = int(value.get("sequence", 0))
     return value
+
+
+def parse_review_json(marker: re.Match[str], marker_name: str, artifact_path: str) -> dict[str, Any]:
+    """解析 OpenSpec 内的评审标记，并保留可定位的错误信息。"""
+    try:
+        value = json.loads(marker.group(1))
+    except json.JSONDecodeError as exc:
+        raise DashboardError(f"{artifact_path} 中的 {marker_name} 无法解析：{exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise DashboardError(f"{artifact_path} 中的 {marker_name} 必须是 JSON object")
+    return value
+
+
+def parse_review_count(value: Any, field: str, artifact_path: str) -> int:
+    """校验评审进度计数，避免坏标记中断实时连接线程。"""
+    try:
+        count = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DashboardError(f"{artifact_path} 中的评审字段 {field} 必须是非负整数") from exc
+    if count < 0:
+        raise DashboardError(f"{artifact_path} 中的评审字段 {field} 必须是非负整数")
+    return count
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_ai_spec_evidence(artifacts: list[dict[str, Any]], project_root: Path) -> dict[str, Any]:
+    """校验 AI-Spec 知识文件存在且与评审快照哈希一致。"""
+    markers: list[tuple[dict[str, Any], str]] = []
+    for artifact in artifacts:
+        for marker in AI_SPEC_EVIDENCE_RE.finditer(artifact["text"]):
+            markers.append(
+                (parse_review_json(marker, "cosh-ai-spec-evidence", artifact["path"]), artifact["path"])
+            )
+    if not markers:
+        return {
+            "status": "missing",
+            "version": "",
+            "sources": [],
+            "missing_roles": sorted(AI_SPEC_REQUIRED_ROLES),
+            "invalid_sources": [],
+            "message": "尚未记录 AI-Spec 知识加载证据",
+        }
+    value, artifact_path = markers[-1]
+    version = str(value.get("version", "")).strip()
+    sources = value.get("sources", [])
+    reviewer_sources = value.get("reviewer_sources", {})
+    if value.get("status") == "fallback":
+        attempts = value.get("attempts", [])
+        fallback_rules = value.get("fallback_rules", [])
+        failure_reason = str(value.get("failure_reason", "")).strip()
+        required_fallback_rules = {"ST1-ST9", "SEC1-SEC8", "F1-F8"}
+        allowed_attempts = (
+            "npm install -g @lark/ai_spec@latest",
+            "ai_spec init .",
+            "ai_spec update .",
+        )
+        if (
+            value.get("attempted") is not True
+            or not isinstance(attempts, list)
+            or not attempts
+            or not all(
+                isinstance(item, dict)
+                and str(item.get("command", "")).strip()
+                and str(item.get("result", "")).strip()
+                and str(item.get("command", "")).strip().startswith(allowed_attempts)
+                for item in attempts
+            )
+            or not failure_reason
+            or not isinstance(fallback_rules, list)
+            or not required_fallback_rules.issubset(set(fallback_rules))
+        ):
+            raise DashboardError(f"{artifact_path} 中的 AI-Spec 降级证据不完整")
+        return {
+            "status": "fallback",
+            "version": version,
+            "sources": [],
+            "missing_roles": sorted(AI_SPEC_REQUIRED_ROLES),
+            "invalid_sources": [],
+            "attempts": attempts,
+            "fallback_rules": fallback_rules,
+            "message": "AI-Spec 自动接入失败，已显式降级到通用评审规则",
+            "failure_reason": failure_reason,
+            "artifact": artifact_path,
+            "loaded_at": str(value.get("loaded_at", "")),
+        }
+    if value.get("status") != "loaded" or not version or not isinstance(sources, list):
+        raise DashboardError(f"{artifact_path} 中的 AI-Spec 证据缺少 loaded 状态、版本或 sources")
+    if not isinstance(reviewer_sources, dict):
+        raise DashboardError(f"{artifact_path} 中的 reviewer_sources 必须是 object")
+
+    normalized: list[dict[str, str]] = []
+    invalid_sources: list[str] = []
+    roles: set[str] = set()
+    root = project_root.resolve()
+    for source in sources:
+        if not isinstance(source, dict):
+            raise DashboardError(f"{artifact_path} 中的 AI-Spec source 必须是 object")
+        role = str(source.get("role", "")).strip()
+        relative_path = str(source.get("path", "")).strip()
+        expected_hash = str(source.get("sha256", "")).strip().lower()
+        if not role or not relative_path or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            raise DashboardError(f"{artifact_path} 中的 AI-Spec source 缺少 role、path 或合法 sha256")
+        candidate = (root / relative_path).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            invalid_sources.append(f"{role}: 路径越界")
+            continue
+        if not candidate.is_file():
+            invalid_sources.append(f"{role}: {relative_path} 不存在")
+        elif sha256_file(candidate) != expected_hash:
+            invalid_sources.append(f"{role}: {relative_path} 已变化")
+        roles.add(role)
+        normalized.append({"role": role, "path": relative_path, "sha256": expected_hash})
+
+    missing_roles = sorted(AI_SPEC_REQUIRED_ROLES - roles)
+    required_reviewer_map = {
+        "stability": {"stability_skill", "stability_spec"},
+        "security": {"security_skill", "security_spec"},
+        "feasibility": {"general_components", "lark_general_knowledge", "code_review"},
+    }
+    for reviewer, required_roles in required_reviewer_map.items():
+        declared = reviewer_sources.get(reviewer, [])
+        if not isinstance(declared, list) or not required_roles.issubset(set(declared)):
+            invalid_sources.append(f"{reviewer}: 未声明完整知识来源")
+    valid = not missing_roles and not invalid_sources
+    return {
+        "status": "loaded" if valid else "blocked",
+        "version": version,
+        "sources": normalized,
+        "missing_roles": missing_roles,
+        "invalid_sources": invalid_sources,
+        "message": "AI-Spec 知识门禁已通过" if valid else "AI-Spec 知识缺失、变化或未被 Reviewer 完整引用",
+        "artifact": artifact_path,
+        "loaded_at": str(value.get("loaded_at", "")),
+    }
+
+
+def parse_reviews(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    """将独立 Reviewer 写入 OpenSpec 的实时状态投影为页面模型。"""
+    tracks: dict[str, dict[str, Any]] = {}
+    findings: list[dict[str, Any]] = []
+    required_reviewers: list[str] = []
+    for artifact in artifacts:
+        for marker in REVIEW_STATE_RE.finditer(artifact["text"]):
+            value = parse_review_json(marker, "cosh-review-state", artifact["path"])
+            reviewer = str(value.get("reviewer", "")).strip().lower()
+            if reviewer not in REVIEWER_NAMES:
+                raise DashboardError(
+                    f"{artifact['path']} 中的评审类型必须是 stability、security 或 feasibility"
+                )
+            configured = value.get("required_reviewers", [])
+            if configured:
+                if not isinstance(configured, list) or any(item not in REVIEWER_NAMES for item in configured):
+                    raise DashboardError(f"{artifact['path']} 中的 required_reviewers 配置无效")
+                required_reviewers = list(dict.fromkeys([*required_reviewers, *configured]))
+            status = str(value.get("status", "not_started")).strip().lower()
+            if status not in {"not_started", "running", "blocked", "passed", "failed"}:
+                raise DashboardError(f"{artifact['path']} 中的评审状态无效：{status}")
+            tracks[reviewer] = {
+                "reviewer": reviewer,
+                "name": REVIEWER_NAMES[reviewer],
+                "status": status,
+                "stage": str(value.get("stage", "等待开始")),
+                "completed": parse_review_count(value.get("completed", 0), "completed", artifact["path"]),
+                "total": parse_review_count(value.get("total", 0), "total", artifact["path"]),
+                "summary": str(value.get("summary", "")),
+                "updated_at": str(value.get("updated_at", artifact["updated_at"])),
+                "artifact": artifact["path"],
+            }
+        for marker in REVIEW_FINDING_RE.finditer(artifact["text"]):
+            value = parse_review_json(marker, "cosh-review-finding", artifact["path"])
+            finding_id = str(value.get("id", "")).strip()
+            reviewer = str(value.get("reviewer", "")).strip().lower()
+            if not finding_id or reviewer not in REVIEWER_NAMES:
+                raise DashboardError(f"{artifact['path']} 中的 finding 必须包含 id 和合法 reviewer")
+            status = str(value.get("status", "failed")).strip().lower()
+            closure = str(value.get("closure", "open")).strip().lower()
+            if status != "failed" or closure not in {"open", "closed"}:
+                raise DashboardError(
+                    f"{artifact['path']} 中的 finding 状态必须是 failed，closure 必须是 open 或 closed"
+                )
+            findings.append(
+                {
+                    "id": finding_id,
+                    "reviewer": reviewer,
+                    "reviewer_name": REVIEWER_NAMES[reviewer].removesuffix("评审"),
+                    "check": str(value.get("check", "未标注")),
+                    "status": status,
+                    "severity": str(value.get("severity", "未定级")),
+                    "blocking": bool(value.get("blocking", False)),
+                    "title": str(value.get("title", "未填写结论")),
+                    "evidence": str(value.get("evidence", "待补充证据")),
+                    "location": str(value.get("location", "待定位")),
+                    "recommendation": str(value.get("recommendation", "待补充修改建议")),
+                    "closure": closure,
+                    "updated_at": str(value.get("updated_at", artifact["updated_at"])),
+                    "artifact": artifact["path"],
+                }
+            )
+
+    if not required_reviewers:
+        required_reviewers = [key for key in REVIEWER_ORDER if key in tracks]
+    missing_reviewers = [key for key in required_reviewers if key not in tracks]
+    ordered_keys = list(dict.fromkeys([*required_reviewers, *REVIEWER_ORDER]))
+    ordered_tracks = [tracks[key] for key in ordered_keys if key in tracks]
+    ordered_tracks.extend(
+        {
+            "reviewer": key,
+            "name": REVIEWER_NAMES[key],
+            "status": "not_started",
+            "stage": "等待启动",
+            "completed": 0,
+            "total": 0,
+            "summary": "必需评审尚未启动",
+            "updated_at": "",
+            "artifact": "",
+        }
+        for key in missing_reviewers
+    )
+    open_failed = [
+        item for item in findings if item["status"] == "failed" and item["closure"] != "closed"
+    ]
+    if not ordered_tracks:
+        overall = "not_started"
+    elif open_failed or any(item["status"] in {"blocked", "failed"} for item in ordered_tracks):
+        overall = "blocked"
+    elif not missing_reviewers and all(
+        tracks[key]["status"] == "passed" for key in required_reviewers
+    ):
+        overall = "passed"
+    else:
+        overall = "running"
+    active_stages = [
+        f"{item['name']} · {item['stage']}" for item in ordered_tracks if item["status"] != "passed"
+    ]
+    return {
+        "status": overall,
+        "stage": "；".join(active_stages) or ("全部必需评审已通过" if overall == "passed" else "等待评审启动"),
+        "required_reviewers": required_reviewers,
+        "missing_reviewers": missing_reviewers,
+        "tracks": ordered_tracks,
+        "findings": findings,
+        "open_failed": open_failed,
+        "failed_count": len(open_failed),
+        "blocking_count": sum(item["blocking"] for item in open_failed),
+    }
 
 
 def file_version(path: Path) -> str:
@@ -327,6 +600,8 @@ def parse_modification_points(artifacts: list[dict[str, Any]]) -> list[dict[str,
 
 def document_category(path: str) -> tuple[str, str]:
     lowered = path.lower()
+    if any(token in lowered for token in ("review", "stability", "security", "feasibility")):
+        return "review", "评审"
     if any(token in lowered for token in ("proposal", "requirement", "spec")):
         return "spec", "规格"
     if "design" in lowered:
@@ -383,7 +658,7 @@ def read_document(project_root: Path, change: str | None, relative_path: str) ->
 
 
 def progress_state(
-    artifacts: list[dict[str, Any]], tasks: dict[str, Any], points: list[dict[str, str]]
+    artifacts: list[dict[str, Any]], tasks: dict[str, Any], points: list[dict[str, str]], reviews: dict[str, Any], ai_spec: dict[str, Any]
 ) -> tuple[str, str, list[dict[str, str]]]:
     has_spec = contains_role(artifacts, "proposal", "requirement", "spec")
     has_design = contains_role(artifacts, "design")
@@ -419,6 +694,15 @@ def progress_state(
         return "CodeGraph 分析", "确认变量级修改点", labels
     if not has_design:
         return "修改点确认", "基于确认后的修改点创建 design", labels
+    if set(reviews.get("required_reviewers", [])) == set(REVIEWER_ORDER) and ai_spec["status"] not in {"loaded", "fallback"}:
+        return "AI-Spec 知识门禁", ai_spec["message"], labels
+    if reviews["status"] in {"running", "blocked"}:
+        next_step = (
+            f"处理 {reviews['failed_count']} 条未通过结论并完成复查"
+            if reviews["failed_count"]
+            else "等待稳定性、安全性与可行性评审完成"
+        )
+        return "稳定性、安全性与可行性评审", next_step, labels
     if not has_tasks:
         return "Design 评审", "确认 design 并生成 tasks", labels
     if not tasks_done:
@@ -434,7 +718,15 @@ def build_status(project_root: Path, change: str | None = None) -> dict[str, Any
     tasks = parse_tasks(artifacts)
     points = parse_modification_points(artifacts)
     documents = build_documents(artifacts, points)
-    stage, next_gate, gates = progress_state(artifacts, tasks, points)
+    ai_spec = parse_ai_spec_evidence(artifacts, project_root)
+    reviews = parse_reviews(artifacts)
+    if set(reviews.get("required_reviewers", [])) == set(REVIEWER_ORDER) and ai_spec["status"] not in {"loaded", "fallback"}:
+        reviews["status"] = "blocked"
+        reviews["stage"] = "AI-Spec 知识门禁未通过"
+        reviews["knowledge_gate"] = "blocked"
+    else:
+        reviews["knowledge_gate"] = ai_spec["status"]
+    stage, next_gate, gates = progress_state(artifacts, tasks, points, reviews, ai_spec)
     source_mtime = max(item["mtime"] for item in artifacts)
     return {
         "change": change_dir.name,
@@ -445,6 +737,8 @@ def build_status(project_root: Path, change: str | None = None) -> dict[str, Any
         "next_gate": next_gate,
         "gates": gates,
         "modification_points": points,
+        "reviews": reviews,
+        "ai_spec": ai_spec,
         "documents": documents,
         "tasks": tasks,
         "artifacts": [

@@ -6,13 +6,14 @@ let activeDocumentPath = null;
 let controlFeedback = "";
 let availableChanges = [];
 const documentCache = new Map();
-const categoryOrder = ["spec", "design", "tasks", "validation", "analysis"];
-const artifactSectionOrder = ["proposal", "spec", "analysis", "design", "validation", "tasks"];
+const categoryOrder = ["spec", "review", "design", "tasks", "validation", "analysis"];
+const artifactSectionOrder = ["proposal", "spec", "analysis", "design", "review", "validation", "tasks"];
 const artifactSectionLabels = {
   proposal: "Proposal",
   spec: "规格",
   analysis: "修改点",
   design: "Design",
+  review: "评审",
   tasks: "Tasks",
   validation: "验证",
 };
@@ -54,6 +55,41 @@ const sampleData = {
       target: "为内部重试写入稳定原因枚举，并保持指标基数有界",
     },
   ],
+  reviews: {
+    status: "blocked",
+    stage: "稳定性评审 · ST4 缓存与数据生命周期；安全性评审 · SEC3 数据安全；可行性评审 · F3 基建复用",
+    required_reviewers: ["stability", "security", "feasibility"],
+    missing_reviewers: [],
+    failed_count: 3,
+    blocking_count: 1,
+    tracks: [
+      { reviewer: "stability", name: "稳定性评审", status: "running", stage: "ST4 缓存与数据生命周期", completed: 3, total: 9, summary: "正在核对重试状态的过期与回收策略", updated_at: "14:31:22", artifact: "reviews/stability.md" },
+      { reviewer: "security", name: "安全性评审", status: "blocked", stage: "SEC3 数据安全", completed: 3, total: 8, summary: "发现日志字段存在敏感信息风险", updated_at: "14:32:08", artifact: "reviews/security.md" },
+      { reviewer: "feasibility", name: "可行性评审", status: "running", stage: "F3 基建复用", completed: 2, total: 8, summary: "正在核对现有风险判断组件能否直接复用", updated_at: "14:32:18", artifact: "reviews/feasibility.md" },
+    ],
+    open_failed: [
+      { id: "SEC-SEC5-001", reviewer: "security", reviewer_name: "安全性", check: "SEC5", status: "failed", severity: "P0", blocking: true, title: "日志可能记录原始订单标识", evidence: "emitRiskDecision 直接写入 request.OrderID", location: "internal/order/risk_metrics.go:52 · orderID", recommendation: "复用现有脱敏函数 MaskOrderID，并只记录脱敏后的有界值", closure: "open", updated_at: "14:32:08", artifact: "reviews/security.md" },
+      { id: "STAB-ST3-002", reviewer: "stability", reviewer_name: "稳定性", check: "ST3", status: "failed", severity: "P1", blocking: false, title: "新增指标缺少基数上限证据", evidence: "skipReason 当前接受任意 string", location: "internal/order/risk_metrics.go:46 · skipReason", recommendation: "将 skipReason 收敛为已有原因枚举并补充未知值兜底", closure: "open", updated_at: "14:30:41", artifact: "reviews/stability.md" },
+      { id: "FEAS-F3-001", reviewer: "feasibility", reviewer_name: "可行性", check: "F3", status: "failed", severity: "P1", blocking: false, title: "方案重复实现现有场景判断能力", evidence: "riskpolicy 包已提供 IsInternalRetry", location: "internal/order/risk_checker.go:128 · riskScene", recommendation: "复用 riskpolicy.IsInternalRetry，仅新增最小调用接入", closure: "open", updated_at: "14:32:18", artifact: "reviews/feasibility.md" },
+    ],
+    findings: [],
+  },
+  ai_spec: {
+    status: "loaded",
+    version: "AI-Spec 2026.08",
+    message: "AI-Spec 知识门禁已通过",
+    missing_roles: [],
+    invalid_sources: [],
+    sources: [
+      { role: "stability_skill", path: ".trae/skills/ai_spec_stability/SKILL.md" },
+      { role: "stability_spec", path: ".ai_spec/specification/stability.md" },
+      { role: "security_skill", path: ".trae/skills/ai_spec_security/SKILL.md" },
+      { role: "security_spec", path: ".ai_spec/specification/security.md" },
+      { role: "general_components", path: ".trae/skills/ai_spec_general_components/SKILL.md" },
+      { role: "lark_general_knowledge", path: ".trae/skills/ai_spec_lark_general_knowledge/SKILL.md" },
+      { role: "code_review", path: ".ai_spec/specification/code_review.md" },
+    ],
+  },
   tasks: {
     total: 6,
     done: 4,
@@ -74,6 +110,9 @@ const sampleData = {
     { path: "specs/order-risk/spec.md", updated_at: "今天 10:42" },
     { path: "analysis/modification-points.md", updated_at: "今天 11:26" },
     { path: "design.md", updated_at: "今天 12:05" },
+    { path: "reviews/stability.md", updated_at: "今天 14:31" },
+    { path: "reviews/security.md", updated_at: "今天 14:32" },
+    { path: "reviews/feasibility.md", updated_at: "今天 14:32" },
     { path: "tasks.md", updated_at: "今天 14:32" },
     { path: "validation/targeted-test.md", updated_at: "今天 14:35" },
   ],
@@ -82,6 +121,9 @@ const sampleData = {
     { path: "specs/order-risk/spec.md", category: "spec", category_label: "规格", point_ids: ["MP-1", "MP-2"], updated_at: "今天 10:42", version: "sample-2", content: "# Order Risk Specification\n\n## Scenario: 内部重试跳过重复风控\n\nGiven riskScene = SceneInternalRetry..." },
     { path: "analysis/modification-points.md", category: "analysis", category_label: "代码证据", point_ids: ["MP-1", "MP-2"], updated_at: "今天 11:26", version: "sample-3", content: "修改点 ID：MP-1\n文件：internal/order/risk_checker.go:128\n变量：riskScene\n\n修改点 ID：MP-2\n文件：internal/order/risk_metrics.go:46\n变量：skipReason" },
     { path: "design.md", category: "design", category_label: "Design", point_ids: ["MP-1", "MP-2"], updated_at: "今天 12:05", version: "sample-4", content: "# Design\n\n## MP-1\n在 ShouldSkip 内收窄跳过条件。\n\n## MP-2\n使用有界原因枚举补充指标。" },
+    { path: "reviews/stability.md", category: "review", category_label: "评审", point_ids: ["MP-1", "MP-2"], updated_at: "今天 14:31", version: "sample-review-1", content: "# 稳定性评审\n\n当前检查：ST4 缓存与数据生命周期\n\n未通过：新增指标缺少基数上限证据。" },
+    { path: "reviews/security.md", category: "review", category_label: "评审", point_ids: ["MP-2"], updated_at: "今天 14:32", version: "sample-review-2", content: "# 安全性评审\n\n当前检查：SEC3 数据安全\n\n未通过：日志可能记录原始订单标识。" },
+    { path: "reviews/feasibility.md", category: "review", category_label: "评审", point_ids: ["MP-1"], updated_at: "今天 14:32", version: "sample-review-3", content: "# 可行性评审\n\n当前检查：F3 基建复用\n\n未通过：方案重复实现现有场景判断能力。" },
     { path: "tasks.md", category: "tasks", category_label: "Tasks", point_ids: ["MP-1", "MP-2"], updated_at: "今天 14:32", version: "sample-5", content: "- [x] 调整 riskScene 分支判断\n- [x] 增加 skipReason 指标维度\n- [ ] 运行定点单测\n- [ ] 回归验证" },
     { path: "validation/targeted-test.md", category: "validation", category_label: "验证", point_ids: ["MP-1", "MP-2"], updated_at: "今天 14:35", version: "sample-6", content: "# 定点验证\n\n状态：等待执行\n\n范围：risk_checker package 单测与 skipReason 指标断言。" },
   ],
@@ -214,6 +256,8 @@ function render(data) {
 
 function renderOverview(data) {
   const percent = data.tasks.total ? Math.round(data.tasks.done / data.tasks.total * 100) : 0;
+  const reviewRisks = data.reviews?.open_failed || [];
+  const reviewDocument = (data.documents || []).find(doc => artifactSection(doc) === "review");
   app.innerHTML = `
     <header class="top">
       <div>${renderChangeSwitcher(data)}<p class="eyebrow">OpenSpec · Change Overview</p><h1>${escapeHtml(data.change)}</h1></div>
@@ -225,11 +269,45 @@ function renderOverview(data) {
         <div><div class="stage">当前阶段 · ${escapeHtml(data.stage)}</div><p class="next">下一步：${escapeHtml(data.next_gate)}</p></div>
         <div><strong>Task 进度 ${percent}%</strong><div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div><div class="progress-copy">${data.tasks.done} / ${data.tasks.total} 已完成</div></div>
       </article>
+      ${renderReviewCenter(data, true)}
       <article class="card"><h2>人工门禁</h2><div class="gates">${data.gates.map((gate, i) => `<div class="gate"><span class="gate-index">${String(i + 1).padStart(2, "0")}</span><span>${escapeHtml(gate.name)}</span><span class="status ${escapeHtml(gate.state)}">${escapeHtml(gate.label)}</span></div>`).join("")}</div></article>
-      <article class="card"><h2>修改点 · ${data.modification_points.length}</h2><div class="points">${list(data.modification_points, point => `<a class="point point-link" href="${escapeHtml(pageHref({ point: point.id }))}"><strong>${escapeHtml(point.id)} · ${escapeHtml(point.scenario || point.variable)}</strong><div class="kv"><b>文件</b><code>${escapeHtml(point.file)}</code><b>变量</b><code>${escapeHtml(point.variable)}${point.type ? ` · ${escapeHtml(point.type)}` : ""}</code><b>目标变化</b><span>${escapeHtml(point.target)}</span></div><span class="open-point">查看独立页面 →</span></a>`, "尚未形成可识别的修改点卡片")}</div></article>
+      <article class="card risk-card"><h2>风险点 · ${reviewRisks.length}</h2><div class="risk-points">${list(reviewRisks, risk => `<article class="risk-point ${risk.blocking ? "blocking" : ""}"><div class="risk-point-title"><strong>${escapeHtml(risk.id)} · ${escapeHtml(risk.title)}</strong><span>${escapeHtml(risk.severity)}${risk.blocking ? " · 阻断" : ""}</span></div><div class="kv"><b>评审项</b><span>${escapeHtml(risk.reviewer_name)} · ${escapeHtml(risk.check)}</span><b>风险位置</b><code>${escapeHtml(risk.location)}</code><b>处理建议</b><span>${escapeHtml(risk.recommendation)}</span></div>${reviewDocument ? `<a class="open-point" href="${escapeHtml(pageHref({ artifact: reviewDocument.path }))}">查看评审详情 →</a>` : ""}</article>`, data.reviews?.status === "passed" ? "评审已通过，目前没有未闭环风险" : "评审暂未发现需要处理的风险")}</div></article>
       <article class="card wide"><h2>数据源</h2><code>${escapeHtml(data.source)}</code></article>
     </section>`;
   bindChangeSwitcher();
+}
+
+function reviewStatusLabel(status) {
+  return ({ not_started: "未开始", running: "进行中", blocked: "有未通过项", passed: "已通过", failed: "未通过" })[status] || status;
+}
+
+function renderReviewCenter(data, compact = false) {
+  const reviews = data.reviews || { status: "not_started", tracks: [], open_failed: [], failed_count: 0, blocking_count: 0, stage: "等待评审启动" };
+  const aiSpec = data.ai_spec || { status: "missing", version: "", message: "尚未记录 AI-Spec 知识加载证据", missing_roles: [], invalid_sources: [], sources: [] };
+  const tracks = reviews.tracks || [];
+  const findings = reviews.open_failed || [];
+  const aiSpecLabel = aiSpec.status === "loaded" ? "已通过" : aiSpec.status === "fallback" ? "通用规则降级" : "未通过";
+  const aiSpecDetail = aiSpec.status === "loaded"
+    ? `已校验 ${aiSpec.sources?.length || 0} 个知识源及文件哈希`
+    : aiSpec.status === "fallback"
+      ? `自动接入失败：${aiSpec.failure_reason || "原因未记录"}`
+      : [...(aiSpec.missing_roles || []), ...(aiSpec.invalid_sources || [])].join("；") || "评审不得启动";
+  return `<section class="card review-center ${compact ? "wide" : ""}">
+    <div class="review-heading">
+      <div><p class="eyebrow">Live Review</p><h2>稳定性、安全性与可行性评审</h2><p class="review-current">${escapeHtml(reviews.stage)}</p></div>
+      <div class="review-summary"><strong>${reviews.failed_count || 0}</strong><span>未通过</span><strong>${reviews.blocking_count || 0}</strong><span>阻断</span></div>
+    </div>
+    <div class="ai-spec-gate ${escapeHtml(aiSpec.status)}"><div><strong>AI-Spec 知识门禁 · ${aiSpecLabel}</strong><span>${escapeHtml(aiSpec.version || "未发现版本")}</span></div><p>${escapeHtml(aiSpec.message)}</p><small>${escapeHtml(aiSpecDetail)}</small></div>
+    <div class="review-tracks">${list(tracks, track => {
+      const percent = track.total ? Math.round(track.completed / track.total * 100) : 0;
+      return `<article class="review-track ${escapeHtml(track.status)}"><div class="review-track-title"><strong>${escapeHtml(track.name)}</strong><span>${escapeHtml(reviewStatusLabel(track.status))}</span></div><p>${escapeHtml(track.stage)}</p><div class="review-progress"><i style="width:${percent}%"></i></div><small>${track.completed} / ${track.total} · ${escapeHtml(track.summary || "等待结论")}</small></article>`;
+    }, "尚未写入评审状态")}</div>
+    ${compact ? "" : `<div class="review-findings"><h3>未通过结论与修改方式</h3>${list(findings, finding => `<article class="review-finding ${finding.blocking ? "blocking" : ""}">
+      <div class="finding-title"><span>${escapeHtml(finding.id)} · ${escapeHtml(finding.reviewer_name)} ${escapeHtml(finding.check)}</span><b>${escapeHtml(finding.severity)}${finding.blocking ? " · 阻断" : ""}</b></div>
+      <h4>${escapeHtml(finding.title)}</h4>
+      <dl><dt>证据</dt><dd>${escapeHtml(finding.evidence)}</dd><dt>修改位置</dt><dd><code>${escapeHtml(finding.location)}</code></dd><dt>应该怎么改</dt><dd>${escapeHtml(finding.recommendation)}</dd></dl>
+    </article>`, reviews.status === "passed" ? "全部必需评审均已通过，没有待修改结论" : "当前没有未通过结论")}</div>`}
+  </section>`;
 }
 
 function renderTaskBoard(data) {
@@ -369,6 +447,7 @@ function renderArtifactPage(data, selectedDocument) {
     </header>
     ${renderArtifactNav(data, selectedSection)}
     ${selectedSection === "tasks" ? renderTaskBoard(data) : ""}
+    ${selectedSection === "review" ? renderReviewCenter(data) : ""}
     ${selectedSection === "tasks" ? "" : renderDocumentReader(selectedSection, sectionDocuments, selectedDocument)}
   `;
   activeDocumentPath = selectedDocument.path;
