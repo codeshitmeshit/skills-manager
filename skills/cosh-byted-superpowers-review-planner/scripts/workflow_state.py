@@ -31,6 +31,9 @@ STAGE_ORDER = (
 )
 REQUIRED_REVIEWERS = ("stability", "security", "feasibility")
 VALID_STATUSES = {"pending", "running", "blocked", "passed"}
+ACTIVE_FINDING_STATUSES = {"open", "pending", "pending_confirmation"}
+CLOSED_FINDING_STATUSES = {"resolved", "closed"}
+VALID_FINDING_STATUSES = ACTIVE_FINDING_STATUSES | CLOSED_FINDING_STATUSES
 
 
 class DashboardError(RuntimeError):
@@ -273,7 +276,11 @@ def _normalize_review_finding(
     title = finding.get("title") or finding.get("problem")
     recommendation = finding.get("recommendation") or finding.get("suggestion")
     evidence = finding.get("evidence")
+    invalid_evidence_items = False
     if isinstance(evidence, list):
+        invalid_evidence_items = any(
+            not isinstance(item, str) or not item.strip() for item in evidence
+        )
         evidence = [item.strip() for item in evidence if isinstance(item, str) and item.strip()]
     elif isinstance(evidence, str):
         evidence = evidence.strip()
@@ -287,7 +294,9 @@ def _normalize_review_finding(
             "recommendation": recommendation.strip()
             if isinstance(recommendation, str)
             else "",
-            "status": finding.get("status") or finding.get("state") or "",
+            "status": (finding.get("status") or finding.get("state") or "").strip()
+            if isinstance(finding.get("status") or finding.get("state"), str)
+            else "",
             "reviewer": reviewer,
             "round": round_number,
         }
@@ -316,6 +325,10 @@ def _normalize_review_finding(
         normalized.get("blocking"), bool
     ):
         errors.append("blocking 必须是布尔值")
+    if invalid_evidence_items:
+        errors.append("evidence 数组元素必须都是非空字符串")
+    if "缺少 status" not in errors and normalized.get("status") not in VALID_FINDING_STATUSES:
+        errors.append("status 必须是 open、pending、pending_confirmation、resolved 或 closed")
     normalized["schema_errors"] = errors
     return normalized, errors
 
@@ -377,6 +390,13 @@ def _project_reviews(
                 f"{reviewer} Reviewer 风险点 {finding_id} {error}"
                 for error in schema_errors
             )
+            if (
+                normalized.get("blocking") is True
+                and normalized.get("status") in ACTIVE_FINDING_STATUSES
+            ):
+                reviewer_errors.append(
+                    f"{reviewer} Reviewer 风险点 {finding_id} 为阻塞风险且尚未闭合"
+                )
         blockers.extend(reviewer_errors)
         result["reviewers"][reviewer] = {
             **review,

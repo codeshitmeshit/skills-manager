@@ -22,7 +22,7 @@ loaded 模式记录版本、七个必需来源角色、实际文件路径、SHA-
 
 每路输出当前阶段、通过状态、风险点、严重级别、证据、影响和建议修改。证据不足的问题标记待确认，不能伪装成阻塞结论。不得让一个 Reviewer 代替另一个。
 
-每个 `findings[]` 必须输出统一字段：`id`、`severity`、`blocking`、`title`、`evidence`、`recommendation` 和 `status`。`evidence` 使用非空字符串或非空字符串数组，必须指向实际代码、技术文档章节、运行数据或知识规则；`assessment`、`rules`、`section` 只能作为补充，不能代替证据。历史产物中的 `problem` 和 `suggestion` 分别兼容映射为 `title` 和 `recommendation`，但任一必填字段缺失时观察板必须显示格式错误并阻塞评审门禁。
+每个 `findings[]` 必须输出统一字段：`id`、`severity`、`blocking`、`title`、`evidence`、`recommendation` 和 `status`。`evidence` 使用非空字符串或每个元素均为非空字符串的数组，必须指向实际代码、技术文档章节、运行数据或知识规则；混合对象、空白元素和全非法数组都是格式错误并阻塞评审门禁。`status` 只能是未闭合的 `open`、`pending`、`pending_confirmation`，或已闭合的 `resolved`、`closed`；`blocking: true` 且未闭合时必须阻塞 Reviewer，即使 Reviewer 顶层状态误报为通过。`assessment`、`rules`、`section` 只能作为补充，不能代替证据。历史产物中的 `problem` 和 `suggestion` 分别兼容映射为 `title` 和 `recommendation`，但任一必填字段缺失时观察板必须显示格式错误并阻塞评审门禁。
 
 ## 修改与复评
 

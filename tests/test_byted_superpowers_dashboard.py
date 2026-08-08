@@ -486,6 +486,69 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         errors = status["reviews"]["findings"][0]["schema_errors"]
         self.assertEqual(errors, ["缺少 blocking", "缺少 status"])
 
+    def test_open_or_pending_blocking_finding_blocks_passing_reviewer(self) -> None:
+        for finding_status in ("open", "pending"):
+            with self.subTest(finding_status=finding_status):
+                self.write_complete_review_round()
+                review_path = self.work / "reviews" / "round-001-security.json"
+                review = json.loads(review_path.read_text(encoding="utf-8"))
+                review["findings"] = [
+                    {
+                        "id": "SEC-R3-03",
+                        "severity": "P0",
+                        "blocking": True,
+                        "title": "风险尚未闭合",
+                        "evidence": "technical-design.md:240",
+                        "recommendation": "完成闭环后复审",
+                        "status": finding_status,
+                    }
+                ]
+                self.write_json(review_path, review)
+
+                status = WORKFLOW.build_status(self.root, self.work_id)
+
+                self.assertEqual(status["stages"]["review"]["status"], "blocked")
+                self.assertFalse(status["stages"]["review"]["can_advance"])
+                self.assertEqual(
+                    status["reviews"]["reviewers"]["security"]["effective_status"],
+                    "blocked",
+                )
+
+    def test_review_finding_evidence_array_rejects_invalid_elements(self) -> None:
+        invalid_evidence_values = (
+            ["technical-design.md:120", {"bad": "shape"}],
+            ["technical-design.md:120", "   "],
+            [{"bad": "shape"}, "   "],
+        )
+        for evidence in invalid_evidence_values:
+            with self.subTest(evidence=evidence):
+                self.write_complete_review_round()
+                review_path = self.work / "reviews" / "round-001-security.json"
+                review = json.loads(review_path.read_text(encoding="utf-8"))
+                review["findings"] = [
+                    {
+                        "id": "SEC-R3-04",
+                        "severity": "P1",
+                        "blocking": False,
+                        "title": "证据格式错误",
+                        "evidence": evidence,
+                        "recommendation": "提供有效证据",
+                        "status": "open",
+                    }
+                ]
+                self.write_json(review_path, review)
+
+                status = WORKFLOW.build_status(self.root, self.work_id)
+
+                self.assertEqual(status["stages"]["review"]["status"], "blocked")
+                self.assertFalse(status["stages"]["review"]["can_advance"])
+                finding = status["reviews"]["findings"][0]
+                self.assertTrue(finding["schema_errors"])
+                self.assertEqual(
+                    status["reviews"]["reviewers"]["security"]["effective_status"],
+                    "blocked",
+                )
+
     def test_review_stage_reports_reviewer_progress_before_tasks_exist(self) -> None:
         self.write_knowledge_gate()
         self.write_codegraph()
