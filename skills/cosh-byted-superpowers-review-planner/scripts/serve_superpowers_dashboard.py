@@ -454,7 +454,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--work")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=57171)
     parser.add_argument(
         "--open",
         action="store_true",

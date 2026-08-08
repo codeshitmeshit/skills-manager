@@ -407,6 +407,98 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertEqual(status["reviews"]["findings"][0]["title"], "日志泄露订单标识")
         self.assertEqual(status["reviews"]["findings"][0]["recommendation"], "复用脱敏函数后再记录")
 
+    def test_review_normalizes_problem_suggestion_and_evidence_list(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [
+            {
+                "id": "SEC-R3-01",
+                "severity": "P1",
+                "blocking": True,
+                "problem": "目标 FG 权限尚未完成验收",
+                "evidence": ["technical-design.md:120", "SEC-102"],
+                "suggestion": "补齐权限和审计证据",
+                "status": "open",
+            }
+        ]
+        self.write_json(review_path, review)
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        finding = status["reviews"]["findings"][0]
+        self.assertEqual(finding["title"], "目标 FG 权限尚未完成验收")
+        self.assertEqual(finding["evidence"], ["technical-design.md:120", "SEC-102"])
+        self.assertEqual(finding["recommendation"], "补齐权限和审计证据")
+        self.assertEqual(finding["schema_errors"], [])
+
+    def test_review_finding_without_evidence_fails_closed(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["findings"] = [
+            {
+                "id": "SEC-R3-01",
+                "severity": "P1",
+                "blocking": False,
+                "problem": "目标 FG 权限尚未完成验收",
+                "suggestion": "补齐权限和审计证据",
+                "status": "pending_confirmation",
+            }
+        ]
+        self.write_json(review_path, review)
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
+        self.assertIn(
+            "SEC-R3-01 缺少 evidence",
+            " ".join(status["stages"]["review"]["blockers"]),
+        )
+        finding = status["reviews"]["findings"][0]
+        self.assertEqual(finding["evidence"], "")
+        self.assertEqual(finding["schema_errors"], ["缺少 evidence"])
+        self.assertEqual(
+            status["reviews"]["reviewers"]["security"]["effective_status"],
+            "blocked",
+        )
+        self.assertEqual(status["primary_progress"]["done"], 2)
+
+    def test_review_finding_requires_blocking_and_status_fields(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["findings"] = [
+            {
+                "id": "SEC-R3-02",
+                "severity": "P2",
+                "title": "规则缺少审批证据",
+                "evidence": "technical-design.md:220",
+                "recommendation": "补充审批记录",
+            }
+        ]
+        self.write_json(review_path, review)
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
+        errors = status["reviews"]["findings"][0]["schema_errors"]
+        self.assertEqual(errors, ["缺少 blocking", "缺少 status"])
+
+    def test_review_stage_reports_reviewer_progress_before_tasks_exist(self) -> None:
+        self.write_knowledge_gate()
+        self.write_codegraph()
+        self.write_review("security")
+        self.write_review("feasibility")
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(
+            status["primary_progress"],
+            {"kind": "reviewers", "label": "Reviewer", "done": 2, "total": 3},
+        )
+
     def test_document_revision_invalidates_gate_codegraph_and_reviews(self) -> None:
         self.write_complete_review_round()
         old = WORKFLOW.build_status(self.root, self.work_id)
@@ -720,6 +812,11 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertTrue(args.open_browser)
         self.assertEqual(args.port, 0)
 
+    def test_dashboard_cli_uses_fixed_port_by_default(self) -> None:
+        with mock.patch.object(sys, "argv", ["serve_superpowers_dashboard.py"]):
+            args = SERVER.parse_args()
+        self.assertEqual(args.port, 57171)
+
     def test_dashboard_opens_actual_bound_url(self) -> None:
         class FakeServer:
             server_address = ("127.0.0.1", 54321)
@@ -962,6 +1059,85 @@ console.log(JSON.stringify({ initialHtml, selectedHtml: appNode.innerHTML }));
         self.assertIn("security Reviewer 未通过", rendered["initialHtml"])
         self.assertIn("技术文档", rendered["selectedHtml"])
         self.assertIn("允许继续", rendered["selectedHtml"])
+
+    def test_overview_uses_stage_progress_until_plan_has_tasks(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview"),
+  history: { replaceState: () => {} },
+};
+"""
+            + javascript
+            + """
+const data = {
+  ...sampleData,
+  tasks_total: 0,
+  tasks_done: 0,
+  tasks: [],
+  current_task: null,
+  primary_progress: { kind: "reviewers", label: "Reviewer", done: 2, total: 3 },
+};
+console.log(renderOverview(data));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Reviewer 2 / 3", result.stdout)
+        self.assertNotIn("Task 0 / 0", result.stdout)
+
+    def test_review_renders_legacy_fields_and_marks_missing_evidence(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=review"),
+  history: { replaceState: () => {} },
+};
+"""
+            + javascript
+            + """
+const data = {
+  ...sampleData,
+  reviews: {
+    ...sampleData.reviews,
+    findings: [{
+      reviewer: "security",
+      id: "SEC-R3-01",
+      severity: "P1",
+      problem: "目标 FG 权限尚未完成验收",
+      suggestion: "补齐权限和审计证据",
+      schema_errors: ["缺少 evidence"],
+    }],
+  },
+};
+console.log(renderReview(data));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("目标 FG 权限尚未完成验收", result.stdout)
+        self.assertIn("补齐权限和审计证据", result.stdout)
+        self.assertIn("未提供（评审证据格式不完整）", result.stdout)
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(

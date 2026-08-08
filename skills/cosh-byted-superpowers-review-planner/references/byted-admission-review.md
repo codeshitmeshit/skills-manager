@@ -22,6 +22,8 @@ loaded 模式记录版本、七个必需来源角色、实际文件路径、SHA-
 
 每路输出当前阶段、通过状态、风险点、严重级别、证据、影响和建议修改。证据不足的问题标记待确认，不能伪装成阻塞结论。不得让一个 Reviewer 代替另一个。
 
+每个 `findings[]` 必须输出统一字段：`id`、`severity`、`blocking`、`title`、`evidence`、`recommendation` 和 `status`。`evidence` 使用非空字符串或非空字符串数组，必须指向实际代码、技术文档章节、运行数据或知识规则；`assessment`、`rules`、`section` 只能作为补充，不能代替证据。历史产物中的 `problem` 和 `suggestion` 分别兼容映射为 `title` 和 `recommendation`，但任一必填字段缺失时观察板必须显示格式错误并阻塞评审门禁。
+
 ## 修改与复评
 
 任一路存在阻塞时展示风险点、证据和建议修改。用户选择技术文档修改后，只修改明确关联章节，生成新版本与 diff；旧结论保留为历史但立即失效。

@@ -91,6 +91,9 @@ h2, h3, p { margin-top: 0; }
 .risk > div { display: flex; justify-content: space-between; gap: 16px; }
 .risk dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin-bottom: 0; }
 .risk dt { color: var(--muted); }
+.risk code { white-space: pre-line; }
+.risk.schema-invalid { border-color: var(--red); }
+.schema-warning { color: var(--red); font-weight: 700; }
 code, pre { font-family: "SFMono-Regular", Consolas, monospace; color: #a9c4ff; }
 .secondary-button, .advance-button, .segmented button, .document-link { border: 0; cursor: pointer; }
 .secondary-button { margin-top: 20px; padding: 11px 15px; border-radius: 10px; color: var(--text); background: #263858; }

@@ -265,6 +265,61 @@ def _read_reviews(work_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return reviews, errors
 
 
+def _normalize_review_finding(
+    finding: Mapping[str, Any], reviewer: str, round_number: int
+) -> tuple[dict[str, Any], list[str]]:
+    """统一 Reviewer 历史字段，并保留缺失证据供硬门禁判断。"""
+    normalized = dict(finding)
+    title = finding.get("title") or finding.get("problem")
+    recommendation = finding.get("recommendation") or finding.get("suggestion")
+    evidence = finding.get("evidence")
+    if isinstance(evidence, list):
+        evidence = [item.strip() for item in evidence if isinstance(item, str) and item.strip()]
+    elif isinstance(evidence, str):
+        evidence = evidence.strip()
+    else:
+        evidence = ""
+
+    normalized.update(
+        {
+            "title": title.strip() if isinstance(title, str) else "",
+            "evidence": evidence,
+            "recommendation": recommendation.strip()
+            if isinstance(recommendation, str)
+            else "",
+            "status": finding.get("status") or finding.get("state") or "",
+            "reviewer": reviewer,
+            "round": round_number,
+        }
+    )
+    errors: list[str] = []
+    for field in (
+        "id",
+        "severity",
+        "blocking",
+        "title",
+        "evidence",
+        "recommendation",
+        "status",
+    ):
+        value = normalized.get(field)
+        if value == "" or value == [] or value is None:
+            errors.append(f"缺少 {field}")
+    if "缺少 severity" not in errors and normalized.get("severity") not in {
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+    }:
+        errors.append("severity 必须是 P0、P1、P2 或 P3")
+    if "缺少 blocking" not in errors and not isinstance(
+        normalized.get("blocking"), bool
+    ):
+        errors.append("blocking 必须是布尔值")
+    normalized["schema_errors"] = errors
+    return normalized, errors
+
+
 def _project_reviews(
     work_dir: Path,
     source: Mapping[str, Any],
@@ -285,7 +340,7 @@ def _project_reviews(
     result["round"] = current_round
     round_reviews = [item for item in current if int(item.get("round", 0)) == current_round]
     by_reviewer = {str(item.get("reviewer")): item for item in round_reviews}
-    result["reviewers"] = by_reviewer
+    result["reviewers"] = {}
     blockers = list(errors)
     if codegraph_stage["status"] != "passed":
         blockers.append("CodeGraph 前置门禁尚未通过，已有评审证据不可继续使用")
@@ -295,17 +350,38 @@ def _project_reviews(
         if review is None:
             blockers.append(f"缺少 {reviewer} Reviewer")
             continue
+        reviewer_errors: list[str] = []
         if review.get("code_sha") != expected_code_sha:
-            blockers.append(f"{reviewer} Reviewer 的代码 SHA 已过期")
+            reviewer_errors.append(f"{reviewer} Reviewer 的代码 SHA 已过期")
         if review.get("status") != "passed":
-            blockers.append(f"{reviewer} Reviewer 未通过")
+            reviewer_errors.append(f"{reviewer} Reviewer 未通过")
         findings = review.get("findings", [])
-        if isinstance(findings, list):
-            result["findings"].extend(
-                {**finding, "reviewer": reviewer, "round": current_round}
-                for finding in findings
-                if isinstance(finding, dict)
+        if not isinstance(findings, list):
+            reviewer_errors.append(f"{reviewer} Reviewer 的 findings 必须是数组")
+            blockers.extend(reviewer_errors)
+            result["reviewers"][reviewer] = {
+                **review,
+                "effective_status": "blocked",
+            }
+            continue
+        for finding in findings:
+            if not isinstance(finding, dict):
+                reviewer_errors.append(f"{reviewer} Reviewer 存在非对象风险点")
+                continue
+            normalized, schema_errors = _normalize_review_finding(
+                finding, reviewer, current_round
             )
+            result["findings"].append(normalized)
+            finding_id = normalized.get("id") or "未命名风险点"
+            reviewer_errors.extend(
+                f"{reviewer} Reviewer 风险点 {finding_id} {error}"
+                for error in schema_errors
+            )
+        blockers.extend(reviewer_errors)
+        result["reviewers"][reviewer] = {
+            **review,
+            "effective_status": "blocked" if reviewer_errors else "passed",
+        }
     updated_at = max((str(item.get("updated_at", "")) for item in round_reviews), default="")
     return result, _stage(
         "blocked" if blockers else "passed",
@@ -375,6 +451,35 @@ def _project_tasks(project_root: Path, work_id: str) -> dict[str, Any]:
             "current_task": None,
             "task_error": str(error),
         }
+
+
+def _project_primary_progress(
+    reviews: Mapping[str, Any], task_projection: Mapping[str, Any]
+) -> dict[str, Any]:
+    """计划生成前展示 Reviewer 进度，避免把门禁阶段误报为 Task 0/0。"""
+    tasks_total = int(task_projection.get("tasks_total") or 0)
+    if tasks_total:
+        return {
+            "kind": "tasks",
+            "label": "Task",
+            "done": int(task_projection.get("tasks_done") or 0),
+            "total": tasks_total,
+        }
+    reviewers = reviews.get("reviewers", {})
+    if not isinstance(reviewers, Mapping):
+        reviewers = {}
+    done = sum(
+        1
+        for reviewer in REQUIRED_REVIEWERS
+        if isinstance(reviewers.get(reviewer), Mapping)
+        and reviewers[reviewer].get("effective_status") == "passed"
+    )
+    return {
+        "kind": "reviewers",
+        "label": "Reviewer",
+        "done": done,
+        "total": len(REQUIRED_REVIEWERS),
+    }
 
 
 def _current_head(project_root: Path) -> str:
@@ -731,6 +836,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         "location_evidence": location_evidence,
         "plan_evidence": plan_evidence,
         "archive": archive,
+        "primary_progress": _project_primary_progress(reviews, task_projection),
         **task_projection,
     }
 

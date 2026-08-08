@@ -182,16 +182,33 @@ function renderOverview(data) {
   const current = stages.find(([, stage]) => stage.status === "running" || stage.status === "blocked") || stages.find(([, stage]) => stage.status !== "passed");
   const selectedName = defaultOverviewStage(stages);
   const selectedStage = stages.find(([name]) => name === selectedName)?.[1];
-  return `<section class="panel hero"><div><p class="eyebrow">当前阶段</p><h2>${escapeHtml(current ? stageLabels[current[0]] : "已完成")}</h2><p>${escapeHtml(current?.[1]?.fix || current?.[1]?.blockers?.[0] || "等待下一项状态更新")}</p></div><div><strong>Task ${data.tasks_done || 0} / ${data.tasks_total || 0}</strong><div class="progress"><i style="width:${data.tasks_total ? Math.round(data.tasks_done / data.tasks_total * 100) : 0}%"></i></div></div></section><section class="overview-workflow">${renderStageStepper(stages, selectedName)}${renderStageDetail(selectedName, selectedStage)}</section>`;
+  const progress = data.primary_progress || { label: "Task", done: data.tasks_done || 0, total: data.tasks_total || 0 };
+  const progressPercent = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
+  return `<section class="panel hero"><div><p class="eyebrow">当前阶段</p><h2>${escapeHtml(current ? stageLabels[current[0]] : "已完成")}</h2><p>${escapeHtml(current?.[1]?.fix || current?.[1]?.blockers?.[0] || "等待下一项状态更新")}</p></div><div><strong>${escapeHtml(progress.label)} ${escapeHtml(progress.done)} / ${escapeHtml(progress.total)}</strong><div class="progress"><i style="width:${progressPercent}%"></i></div></div></section><section class="overview-workflow">${renderStageStepper(stages, selectedName)}${renderStageDetail(selectedName, selectedStage)}</section>`;
 }
 
 function reviewerLabel(name) {
   return ({ stability: "稳定性", security: "安全性", feasibility: "可行性" })[name] || name;
 }
 
+function reviewFindingView(finding) {
+  const title = finding.title || finding.problem || "未提供风险描述";
+  const recommendation = finding.recommendation || finding.suggestion || "未提供修改建议";
+  const evidenceItems = Array.isArray(finding.evidence) ? finding.evidence.filter(Boolean) : [finding.evidence].filter(Boolean);
+  const evidence = evidenceItems.length ? evidenceItems.join("\n") : "未提供（评审证据格式不完整）";
+  const schemaErrors = Array.isArray(finding.schema_errors) ? finding.schema_errors.filter(Boolean) : [];
+  return { title, recommendation, evidence, schemaErrors };
+}
+
 function renderReview(data) {
   const reviews = data.reviews || { reviewers: {}, findings: [], history: [] };
-  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div><span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span></div><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => `<article class="review-track ${escapeHtml(review.status)}"><strong>${reviewerLabel(name)}</strong><span>${escapeHtml(review.status)}</span><small>${escapeHtml(review.stage || "")}</small></article>`).join("") || '<p class="empty">等待三路评审</p>'}</div><div class="risk-list"><h3>风险点</h3>${(reviews.findings || []).map(finding => `<article class="risk"><div><strong>${escapeHtml(finding.id)} · ${escapeHtml(finding.title)}</strong><span>${escapeHtml(finding.severity || "")}</span></div><dl><dt>证据</dt><dd><code>${escapeHtml(finding.evidence || "")}</code></dd><dt>应该怎么修改</dt><dd>${escapeHtml(finding.recommendation || "")}</dd></dl></article>`).join("") || '<p class="empty">当前没有未关闭风险点</p>'}</div><button class="secondary-button" id="request-revision">修改技术文档并重新评审</button></section>`;
+  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div><span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span></div><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => {
+    const status = review.effective_status || review.status;
+    return `<article class="review-track ${escapeHtml(status)}"><strong>${reviewerLabel(name)}</strong><span>${escapeHtml(status)}</span><small>${escapeHtml(review.stage || "")}</small></article>`;
+  }).join("") || '<p class="empty">等待三路评审</p>'}</div><div class="risk-list"><h3>风险点</h3>${(reviews.findings || []).map(finding => {
+    const view = reviewFindingView(finding);
+    return `<article class="risk ${view.schemaErrors.length ? "schema-invalid" : ""}"><div><strong>${escapeHtml(finding.id)} · ${escapeHtml(view.title)}</strong><span>${escapeHtml(finding.severity || "")}</span></div>${view.schemaErrors.length ? `<p class="schema-warning">硬门禁：${escapeHtml(view.schemaErrors.join("；"))}</p>` : ""}<dl><dt>证据</dt><dd><code>${escapeHtml(view.evidence)}</code></dd><dt>应该怎么修改</dt><dd>${escapeHtml(view.recommendation)}</dd></dl></article>`;
+  }).join("") || '<p class="empty">当前没有未关闭风险点</p>'}</div><button class="secondary-button" id="request-revision">修改技术文档并重新评审</button></section>`;
 }
 
 function documentsFor(data, category) {
