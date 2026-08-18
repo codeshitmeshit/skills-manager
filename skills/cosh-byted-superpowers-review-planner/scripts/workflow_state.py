@@ -692,6 +692,7 @@ def _project_spec(
     source: Mapping[str, Any],
     knowledge: Mapping[str, Any],
     closure_stage: Mapping[str, Any],
+    task_projection: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         evidence = _read_json(work_dir / "evidence" / "spec.json")
@@ -709,15 +710,63 @@ def _project_spec(
     if evidence.get("status") != "passed":
         blockers.append("Superpowers 规格尚未通过书面确认")
     _, artifact_blockers = _validate_project_artifact(project_root, evidence)
+    amendment = task_projection.get("spec_amendment")
+    if not isinstance(amendment, Mapping):
+        amendment = {}
+    amendment_error = task_projection.get("spec_amendment_error")
+    artifact_sha_changed = any(
+        blocker.startswith("产物 SHA-256 已失效") for blocker in artifact_blockers
+    )
+    implementation_spec_change = artifact_sha_changed and bool(
+        task_projection.get("tasks_total")
+    )
+    if amendment:
+        artifact_blockers = [
+            blocker
+            for blocker in artifact_blockers
+            if not blocker.startswith("产物 SHA-256 已失效")
+        ]
+    elif implementation_spec_change:
+        artifact_blockers = [
+            blocker
+            for blocker in artifact_blockers
+            if not blocker.startswith("产物 SHA-256 已失效")
+        ]
+        artifact_blockers.append(
+            str(amendment_error or "缺少当前 Task 的规格附加修正")
+        )
     blockers.extend(artifact_blockers)
-    return evidence, _stage(
+    projected_evidence = dict(evidence)
+    if amendment:
+        projected_evidence["effective_sha256"] = amendment.get(
+            "amended_spec_sha256"
+        )
+        projected_evidence["amendment"] = dict(amendment)
+    fix = ""
+    if blockers:
+        fix = (
+            "同步为当前 Task 附加修正"
+            if implementation_spec_change and task_projection.get("current_task")
+            else "明确修正归属后同步实施期规格附加修正"
+            if implementation_spec_change
+            else "重新生成并确认当前版本 Superpowers 规格"
+        )
+    stage = _stage(
         "blocked" if blockers else "passed",
         blockers,
-        fix="重新生成并确认当前版本 Superpowers 规格" if blockers else "",
-        version=evidence.get("sha256"),
-        updated_at=str(evidence.get("updated_at", "")),
+        fix=fix,
+        version=amendment.get("amended_spec_sha256")
+        if amendment
+        else evidence.get("sha256"),
+        updated_at=str(
+            amendment.get("updated_at") if amendment else evidence.get("updated_at", "")
+        ),
         can_advance=not blockers,
     )
+    if amendment:
+        stage["amendment_task"] = amendment.get("task")
+        stage["amendment_summary"] = amendment.get("summary")
+    return projected_evidence, stage
 
 
 def _project_location(
@@ -750,10 +799,15 @@ def _project_location(
         not isinstance(item, dict) or not required.issubset(item) for item in locations
     ):
         blockers.append("精确定位必须包含文件、符号、变量和类型")
+    fix = (
+        "先同步当前 Task 规格附加修正"
+        if "附加修正" in str(spec_stage.get("fix", ""))
+        else "重新执行规格与源码的变量级定位校验"
+    )
     return evidence, _stage(
         "blocked" if blockers else "passed",
         blockers,
-        fix="重新执行规格与源码的变量级定位校验" if blockers else "",
+        fix=fix if blockers else "",
         version=evidence.get("code_sha"),
         updated_at=str(evidence.get("updated_at", "")),
         can_advance=not blockers,
@@ -787,10 +841,15 @@ def _project_plan(
     blockers.extend(artifact_blockers)
     if not task_projection.get("tasks_total"):
         blockers.append("计划没有可执行实施子任务")
+    fix = (
+        "先同步当前 Task 规格附加修正"
+        if "附加修正" in str(location_stage.get("fix", ""))
+        else "重新生成无占位、可验证的 Superpowers 计划"
+    )
     return evidence, _stage(
         "blocked" if blockers else "passed",
         blockers,
-        fix="重新生成无占位、可验证的 Superpowers 计划" if blockers else "",
+        fix=fix if blockers else "",
         version=evidence.get("sha256"),
         updated_at=str(evidence.get("updated_at", "")),
         can_advance=not blockers,
@@ -938,7 +997,12 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
 
     task_projection = _project_tasks(project_root, work_dir.name)
     spec_evidence, spec_stage = _project_spec(
-        project_root, work_dir, evidence_source, knowledge, closure_stage
+        project_root,
+        work_dir,
+        evidence_source,
+        knowledge,
+        closure_stage,
+        task_projection,
     )
     location_evidence, location_stage = _project_location(
         work_dir, evidence_source, spec_evidence, spec_stage, codegraph
@@ -978,7 +1042,11 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
     if task_projection.get("scope_violation_files"):
         implementation_fix = "先处理全部未授权改动，再由用户授权下一任务"
     elif implementation_blockers:
-        implementation_fix = "先闭合规格、定位与计划门禁"
+        implementation_fix = (
+            "先同步当前 Task 规格附加修正"
+            if "附加修正" in str(spec_stage.get("fix", ""))
+            else "先闭合规格、定位与计划门禁"
+        )
     else:
         implementation_fix = ""
     stages["implementation"] = _stage(

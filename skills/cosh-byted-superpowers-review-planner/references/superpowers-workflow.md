@@ -55,6 +55,12 @@ docs/superpowers/plans/YYYY-MM-DD-<work>.md
 
 ## 实施子任务
 
+### 实施期规格修正
+
+规格、定位和计划通过后，规格文件变更不再默认回退并重建 Superpowers。存在当前授权 Task 时，按 [`implementation-spec-amendments.md`](implementation-spec-amendments.md) 写入 `evidence/spec-amendment-task<N>.json`，以完整 `task_override` 替代原计划中当前 Task 的执行契约；原规格证据、定位证据、计划文件及计划证据保持不变。
+
+附加修正进入当前 Task 快照，使旧远程 UT 和 CR 失效。规格文件必须随当前 Task 完整暂存和提交。已完成 Task 的修正只作为有效规格链历史，不得覆盖后续 Task。只有用户当轮明确要求重新生成 Superpowers，或变更无法收敛到当前 Task 且用户确认重建时，才使原生规格、定位和计划失效。
+
 ### 逐一任务校验
 
 一次只允许开发一个实施子任务。Task 1 初始授权；后续任务必须由 `control.json.task_authorization.authorized_task` 明确授权。当前任务的文件、符号、变量和接口形成范围锁；每次写入前读取授权，写入后检查 staged、unstaged、untracked 全工作区。范围外或未授权任务改动立即阻塞，不能先保留改动再继续其他任务。
@@ -83,7 +89,7 @@ feat: 增加内部重试风险判断
 optimize-order-risk-check-task1
 ```
 
-推进前校验暂存区没有范围外文件、远程 UT 与 CR 绑定当前代码 SHA。完整远程 UT 和最终 CR 绑定当前 HEAD 并通过后，才允许普通 push。
+推进前校验暂存区没有范围外文件；存在规格附加修正时同时校验规格文件已完整暂存。远程 UT 与 CR 绑定包含有效规格修正链的当前任务快照。完整远程 UT 和最终 CR 绑定当前 HEAD 并通过后，才允许普通 push。
 
 ## 本地归档
 

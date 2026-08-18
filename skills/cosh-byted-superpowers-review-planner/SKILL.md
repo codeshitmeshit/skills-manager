@@ -16,6 +16,7 @@ description: 字节专属的强门禁研发流程。用户提供技术方案并�
 - 分析仓库和精确定位时，完整读取 [`references/implementation-accuracy.md`](references/implementation-accuracy.md) 与 [`references/codegraph-implementation-location.md`](references/codegraph-implementation-location.md)。
 - 生成计划、编码或 CR 前，完整读取 [`references/code-authoring-standards.md`](references/code-authoring-standards.md)。
 - 编码或测试前，完整读取 [`references/byted-coding-remote-ut.md`](references/byted-coding-remote-ut.md)。
+- 实施阶段修改 Superpowers 规格前，完整读取 [`references/implementation-spec-amendments.md`](references/implementation-spec-amendments.md)。
 - 启动或解释观察板前，完整读取 [`references/realtime-dashboard.md`](references/realtime-dashboard.md)。
 
 ## 入口启动
@@ -54,6 +55,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 连续推进只能取消人工等待，不能跳过范围校验、远程 UT、CR、提交或任何全局门禁。
 - `mode=single` 时只有后端 `authorized_task` 指向的任务可以产生代码改动。Task 1 默认授权；后续任务必须由用户当轮明确触发“推进下一个任务”后授权。不得从“继续”“完成全部任务”等历史或宽泛表述推断跨任务授权，Agent 不得代替用户调用推进控制。
 - 任务范围校验覆盖 staged、unstaged、untracked 全工作区，而非只检查暂存区。发现未授权任务或范围外文件后立即停止并标记 `scope_violation`；保留改动等待用户决定不等于允许继续其他任务。
+- 已进入实施阶段后修改 Superpowers 规格，默认自动写成当前 `authorized_task` 的附加修正并覆盖该 Task 的文件、接口、步骤和验收条件；保留原规格、定位和计划基线。只有用户当轮明确要求重新生成 Superpowers 时才重建，Agent 不得因规格 SHA 变化自行调用 `superpowers:brainstorming` 或 `superpowers:writing-plans`。
 - 同一开发任务不得在 Superpowers 与 Hammer 之间切换。检测到 Hammer 引擎、调用记录、状态或产物时立即阻塞；如需改用 Hammer，先终止并归档当前任务，再建立完全独立的新任务。
 
 ## 主流程
@@ -80,11 +82,12 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 
 1. 锁定当前任务允许修改的文件、符号、变量和接口。
 2. 每次写入前确认当前任务等于 `authorized_task`；写入后检查 staged、unstaged、untracked 完整 diff。范围外修改立即阻塞，不继续写其他任务。
-3. 使用 `bits-remote-ut` 完成当前任务远程 UT。
-4. 远程 UT 通过后完成当前任务 CR；未通过时只修复当前任务并重跑远程 UT 与 CR。
-5. CR 通过后只把当前任务置为可完成；没有用户当轮明确推进动作时，下一任务保持 `locked`。
-6. 用户触发推进时检查全工作区，拒绝范围外、未暂存、空提交或证据过期状态；只提交当前任务范围内的文件。
-7. 记录 commit SHA 和任务授权审计后关闭当前范围，把 `authorized_task` 原子更新为下一任务；否则进入 `awaiting_approval` 并停止。
+3. 实施中修正规格时，按实施期规格附加修正规范立即生成当前 Task 的完整覆盖；规格文件随当前 Task 提交，不修改原计划。修正无法收敛到当前 Task 时停止并询问用户是否重建。
+4. 使用 `bits-remote-ut` 完成当前任务远程 UT。
+5. 远程 UT 通过后完成当前任务 CR；未通过时只修复当前任务并重跑远程 UT 与 CR。规格附加修正后旧 UT/CR 自动失效。
+6. CR 通过后只把当前任务置为可完成；没有用户当轮明确推进动作时，下一任务保持 `locked`。
+7. 用户触发推进时检查全工作区，拒绝范围外、未暂存、空提交或证据过期状态；只提交当前任务范围内的文件及规格附加修正。
+8. 记录 commit SHA 和任务授权审计后关闭当前范围，把 `authorized_task` 原子更新为下一任务；否则进入 `awaiting_approval` 并停止。
 
 提交信息固定为：
 
@@ -123,6 +126,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 确认三个 Reviewer 独立完成且所有阻塞风险点已闭合。
 - 确认文档修订存在不可变冻结快照与完整差异判断；继承结论时所有语义变化维度均明确为 `false`。
 - 确认计划覆盖规格，实施范围精确到文件、符号和变量。
+- 确认实施期规格变更绑定当前 Task、原规格与原计划哈希，且没有未经用户明确授权重建 Superpowers。
 - 确认只使用 BITS 远程 UT，并保留结构化通过证据。
 - 确认每个提交符合中文 Conventional Commits 与任务标识格式。
 - 确认观察板实时更新、自然语言可独立推进、本地归档被 gitignore。

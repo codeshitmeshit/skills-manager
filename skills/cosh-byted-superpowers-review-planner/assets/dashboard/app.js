@@ -259,7 +259,10 @@ function renderDocumentTab(data, category) {
   const documents = documentsFor(data, category);
   const requested = new URL(window.location.href).searchParams.get("document");
   const selected = documents.find(document => document.path === requested) || documents[0];
-  return `<section class="panel document-layout"><aside>${documents.map(document => `<button class="document-link ${document === selected ? "active" : ""}" data-document="${escapeHtml(document.path)}">${escapeHtml(document.label)}<small>${escapeHtml(document.path)}</small></button>`).join("") || '<p class="empty">当前阶段尚无产物</p>'}</aside><article><div class="document-heading"><code>${escapeHtml(selected?.path || "未选择文件")}</code><span>实时只读</span></div><pre id="document-content">${selected ? "正在读取…" : "尚无内容"}</pre></article></section>`;
+  const amendment = category === "spec" && data.spec_amendment?.task
+    ? `<div class="spec-amendment-banner"><strong>本轮任务附加修正 · Task ${escapeHtml(data.spec_amendment.task)}</strong><span>${escapeHtml(data.spec_amendment.summary || "规格已同步到当前任务")}</span></div>`
+    : "";
+  return `${amendment}<section class="panel document-layout"><aside>${documents.map(document => `<button class="document-link ${document === selected ? "active" : ""}" data-document="${escapeHtml(document.path)}">${escapeHtml(document.label)}<small>${escapeHtml(document.path)}</small></button>`).join("") || '<p class="empty">当前阶段尚无产物</p>'}</aside><article><div class="document-heading"><code>${escapeHtml(selected?.path || "未选择文件")}</code><span>实时只读</span></div><pre id="document-content">${selected ? "正在读取…" : "尚无内容"}</pre></article></section>`;
 }
 
 function renderValidation(data) {
@@ -278,6 +281,7 @@ function renderTasks(data) {
     : "";
   const rows = (data.tasks || []).map(task => {
     const current = data.current_task?.number === task.number;
+    const displayedTask = current ? data.current_task : task;
     const stateLabel = task.status === "completed"
       ? "已完成"
       : task.status === "current"
@@ -291,7 +295,10 @@ function renderTasks(data) {
     const blockers = current && !data.current_task.can_advance && data.current_task.advance_blockers?.length
       ? `<div class="advance-blockers"><strong>为什么不能推进</strong><ul>${data.current_task.advance_blockers.map(blocker => `<li>${escapeHtml(blocker)}</li>`).join("")}</ul></div>`
       : "";
-    return `<article class="task-row ${escapeHtml(task.status)}"><span class="task-index">TASK ${task.number}</span><div><strong>${escapeHtml(task.title)}</strong><small>${(task.allowed_files || []).map(escapeHtml).join(" · ")}</small></div>${advance}${blockers}</article>`;
+    const amendment = (current ? data.current_task?.spec_amendment : task.spec_amendment)
+      ? `<span class="task-amendment">规格已同步修正</span>`
+      : "";
+    return `<article class="task-row ${escapeHtml(task.status)}"><span class="task-index">TASK ${task.number}</span><div><strong>${escapeHtml(displayedTask.title)}</strong><small>${(displayedTask.allowed_files || []).map(escapeHtml).join(" · ")}</small>${amendment}</div>${advance}${blockers}</article>`;
   }).join("") || '<p class="empty">尚未生成实施子任务</p>';
   return `<section class="panel task-panel">${modeControl(data)}<p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p>${approval}<div class="task-list">${rows}</div></section>`;
 }

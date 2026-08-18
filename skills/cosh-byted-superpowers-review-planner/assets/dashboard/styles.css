@@ -144,6 +144,9 @@ pre { margin: 0; padding: 24px; white-space: pre-wrap; overflow: auto; }
 .advance-blockers ul { margin: 8px 0 0; padding-left: 20px; }
 .task-approval-waiting { margin: 18px 0; padding: 14px 16px; border: 1px solid rgba(242, 196, 95, .38); border-radius: 12px; color: var(--yellow); background: rgba(242, 196, 95, .08); font-weight: 800; }
 .task-approval-waiting ul { margin: 8px 0 0; padding-left: 20px; font-weight: 600; }
+.task-amendment { width: fit-content; padding: 4px 8px; border-radius: 999px; color: var(--blue); background: rgba(91, 145, 255, .12); font-size: 12px; font-weight: 800; }
+.spec-amendment-banner { display: grid; gap: 6px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid rgba(91, 145, 255, .35); border-radius: 12px; color: var(--blue); background: rgba(91, 145, 255, .08); }
+.spec-amendment-banner span { color: var(--text); }
 .validation-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .empty { color: var(--muted); }
 .error { width: min(620px, 100%); margin: 20vh auto; border: 1px solid rgba(255, 127, 132, .5); border-radius: 16px; background: var(--panel); padding: 28px; }

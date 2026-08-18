@@ -352,6 +352,51 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
                 },
             )
 
+    def write_task_spec_amendment(
+        self,
+        task_number: int,
+        *,
+        content: str,
+        allowed_files: list[str],
+        interfaces: list[str],
+        steps: list[str],
+        acceptance_criteria: list[str],
+        base_spec_sha256: str | None = None,
+    ) -> pathlib.Path:
+        spec_evidence = json.loads(
+            (self.work / "evidence" / "spec.json").read_text(encoding="utf-8")
+        )
+        plan_evidence = json.loads(
+            (self.work / "evidence" / "plan.json").read_text(encoding="utf-8")
+        )
+        spec_path = self.root / spec_evidence["path"]
+        spec_path.write_text(content, encoding="utf-8")
+        amendment_path = (
+            self.work / "evidence" / f"spec-amendment-task{task_number}.json"
+        )
+        self.write_json(
+            amendment_path,
+            {
+                "status": "passed",
+                "task": task_number,
+                "spec_path": spec_evidence["path"],
+                "base_spec_sha256": base_spec_sha256 or spec_evidence["sha256"],
+                "amended_spec_sha256": self.sha256(content),
+                "base_plan_sha256": plan_evidence["sha256"],
+                "summary": "补充当前任务的接口、文件范围与验收条件",
+                "diff": "+ 当前任务使用新的 helper 并补齐验收条件",
+                "task_override": {
+                    "title": "增加重试保护（规格修正版）",
+                    "allowed_files": allowed_files,
+                    "interfaces": interfaces,
+                    "steps": steps,
+                    "acceptance_criteria": acceptance_criteria,
+                },
+                "updated_at": "2026-08-18T16:30:00+08:00",
+            },
+        )
+        return amendment_path
+
     def start_server(self):
         server = SERVER.ThreadingHTTPServer(
             ("127.0.0.1", 0), SERVER.make_handler(self.root, self.work_id)
@@ -839,6 +884,407 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
                 commit_type="feat",
                 summary="增加内部重试判断",
             )
+
+    def test_implementation_spec_amendment_overlays_current_task_without_rebuilding_plan(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        original_plan = plan.read_text(encoding="utf-8")
+        spec_evidence = json.loads(
+            (self.work / "evidence" / "spec.json").read_text(encoding="utf-8")
+        )
+        amended_content = "# 订单风控优化规格\n\n补充：当前任务复用 helper，并覆盖降级验收。\n"
+        self.write_task_spec_amendment(
+            1,
+            content=amended_content,
+            allowed_files=["internal/order/risk.go", "internal/order/helper.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool", "Consumes: retryHelper"],
+            steps=["实现保护", "补充降级测试"],
+            acceptance_criteria=["远程 UT 覆盖 helper 失败降级"],
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "passed")
+        self.assertEqual(status["stages"]["location"]["status"], "passed")
+        self.assertEqual(status["stages"]["plan"]["status"], "passed")
+        self.assertEqual(status["stages"]["spec"]["amendment_task"], 1)
+        self.assertEqual(status["spec_amendment"]["base_spec_sha256"], spec_evidence["sha256"])
+        self.assertEqual(status["spec_amendment"]["amended_spec_sha256"], self.sha256(amended_content))
+        self.assertEqual(
+            status["current_task"]["allowed_files"],
+            ["internal/order/risk.go", "internal/order/helper.go"],
+        )
+        self.assertEqual(
+            status["current_task"]["acceptance_criteria"],
+            ["远程 UT 覆盖 helper 失败降级"],
+        )
+        self.assertEqual(plan.read_text(encoding="utf-8"), original_plan)
+
+    def test_implementation_spec_change_without_task_amendment_does_not_request_regeneration(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        spec_evidence = json.loads(
+            (self.work / "evidence" / "spec.json").read_text(encoding="utf-8")
+        )
+        (self.root / spec_evidence["path"]).write_text(
+            "# 已修改规格\n", encoding="utf-8"
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "blocked")
+        self.assertIn("缺少当前 Task 的规格附加修正", " ".join(status["stages"]["spec"]["blockers"]))
+        self.assertIn("同步为当前 Task 附加修正", status["stages"]["spec"]["fix"])
+        self.assertNotIn("重新生成", status["stages"]["spec"]["fix"])
+        for stage_name in ("location", "plan", "implementation"):
+            self.assertIn("规格附加修正", status["stages"][stage_name]["fix"])
+            self.assertNotIn("重新生成", status["stages"][stage_name]["fix"])
+
+    def test_spec_amendment_invalidates_current_task_ut_and_cr_snapshot(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go")
+        self.write_task_evidence(1)
+        before = TASKS.project_task_status(self.root, self.work_id)
+        self.assertTrue(before["current_task"]["remote_ut_passed"])
+        self.assertTrue(before["current_task"]["cr_passed"])
+        self.write_task_spec_amendment(
+            1,
+            content="# 订单风控优化规格\n\n补充当前任务验收。\n",
+            allowed_files=["internal/order/risk.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+
+        after = TASKS.project_task_status(self.root, self.work_id)
+
+        self.assertFalse(after["current_task"]["remote_ut_passed"])
+        self.assertFalse(after["current_task"]["cr_passed"])
+        self.assertIn("规格附加修正", " ".join(after["current_task"]["advance_blockers"]))
+
+    def test_spec_amendment_must_be_staged_with_current_task_commit(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go")
+        self.write_task_spec_amendment(
+            1,
+            content="# 订单风控优化规格\n\n补充当前任务验收。\n",
+            allowed_files=["internal/order/risk.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+        projected = TASKS.project_task_status(self.root, self.work_id)
+        snapshot = projected["current_task"]["snapshot_sha"]
+        for prefix in ("remote-ut", "cr"):
+            self.write_json(
+                self.work / "evidence" / f"{prefix}-task1.json",
+                {"status": "passed", "code_sha": snapshot},
+            )
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "规格附加修正产物尚未暂存"):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=1,
+                commit_type="feat",
+                summary="增加重试保护",
+            )
+
+        spec_evidence = json.loads(
+            (self.work / "evidence" / "spec.json").read_text(encoding="utf-8")
+        )
+        subprocess.run(
+            ["git", "add", spec_evidence["path"]], cwd=self.root, check=True
+        )
+        projected = TASKS.project_task_status(self.root, self.work_id)
+        snapshot = projected["current_task"]["snapshot_sha"]
+        for prefix in ("remote-ut", "cr"):
+            self.write_json(
+                self.work / "evidence" / f"{prefix}-task1.json",
+                {"status": "passed", "code_sha": snapshot},
+            )
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        result = TASKS.advance_task(
+            self.root,
+            self.work_id,
+            expected_version=version,
+            expected_task=1,
+            commit_type="feat",
+            summary="增加重试保护",
+        )
+        self.assertEqual(result["completed_task"], 1)
+
+    def test_completed_task_amendment_remains_effective_without_overriding_next_task(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_task_spec_amendment(
+            1,
+            content="# 订单风控优化规格\n\n补充 Task 1 验收。\n",
+            allowed_files=["internal/order/risk.go", "internal/order/helper.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护", "补充降级测试"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+        self.write_json(
+            self.work / "control.json",
+            {
+                "task_authorization": {
+                    "completed_task": 1,
+                    "authorized_task": 2,
+                    "state": "authorized",
+                }
+            },
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "passed")
+        self.assertEqual(status["current_task"]["number"], 2)
+        self.assertEqual(
+            status["current_task"]["allowed_files"],
+            ["internal/order/metric.go"],
+        )
+        self.assertNotIn("spec_amendment", status["current_task"])
+        self.assertEqual(status["spec_amendment"]["task"], 1)
+
+    def test_later_task_amendment_chains_and_squashes_repeated_edits(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        original_plan = plan.read_text(encoding="utf-8")
+        task1_content = "# 订单风控优化规格\n\n补充 Task 1 验收。\n"
+        self.write_task_spec_amendment(
+            1,
+            content=task1_content,
+            allowed_files=["internal/order/risk.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+        self.write_json(
+            self.work / "control.json",
+            {
+                "task_authorization": {
+                    "completed_task": 1,
+                    "authorized_task": 2,
+                    "state": "authorized",
+                }
+            },
+        )
+        task1_sha = self.sha256(task1_content)
+        self.write_task_spec_amendment(
+            2,
+            content="# 订单风控优化规格\n\n补充 Task 2 指标。\n",
+            allowed_files=["internal/order/metric.go"],
+            interfaces=["Consumes: shouldSkip(scene RiskScene) bool"],
+            steps=["实现指标"],
+            acceptance_criteria=["指标可观测"],
+            base_spec_sha256=task1_sha,
+        )
+        latest_content = "# 订单风控优化规格\n\n补充 Task 2 指标与告警。\n"
+        self.write_task_spec_amendment(
+            2,
+            content=latest_content,
+            allowed_files=["internal/order/metric.go", "internal/order/alert.go"],
+            interfaces=[
+                "Consumes: shouldSkip(scene RiskScene) bool",
+                "Produces: riskAlert(metric RiskMetric)",
+            ],
+            steps=["实现指标", "补充告警"],
+            acceptance_criteria=["指标可观测", "告警可触发"],
+            base_spec_sha256=task1_sha,
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "passed")
+        self.assertEqual(
+            [item["task"] for item in status["spec_amendment_chain"]], [1, 2]
+        )
+        self.assertEqual(status["spec_amendment"]["base_spec_sha256"], task1_sha)
+        self.assertEqual(
+            status["spec_amendment"]["amended_spec_sha256"],
+            self.sha256(latest_content),
+        )
+        self.assertEqual(
+            status["current_task"]["allowed_files"],
+            ["internal/order/metric.go", "internal/order/alert.go"],
+        )
+        self.assertEqual(plan.read_text(encoding="utf-8"), original_plan)
+
+    def test_completed_amendment_survives_waiting_for_next_task_authorization(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_task_spec_amendment(
+            1,
+            content="# 订单风控优化规格\n\n补充 Task 1 验收。\n",
+            allowed_files=["internal/order/risk.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "passed")
+        self.assertEqual(status["stages"]["location"]["status"], "passed")
+        self.assertEqual(status["stages"]["plan"]["status"], "passed")
+        self.assertEqual(status["spec_amendment"]["task"], 1)
+        self.assertFalse(status["current_task"])
+
+        spec_evidence = json.loads(
+            (self.work / "evidence" / "spec.json").read_text(encoding="utf-8")
+        )
+        (self.root / spec_evidence["path"]).write_text(
+            "# 订单风控优化规格\n\n尚未绑定下一 Task 的新修正。\n",
+            encoding="utf-8",
+        )
+        missing = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(missing["stages"]["spec"]["status"], "blocked")
+        self.assertIn("规格附加修正", missing["stages"]["spec"]["fix"])
+        self.assertNotIn("重新生成", missing["stages"]["spec"]["fix"])
+
+    def test_completed_final_task_keeps_amendment_chain_effective(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_task_spec_amendment(
+            1,
+            content="# 订单风控优化规格\n\n补充最终 Task 验收。\n",
+            allowed_files=["internal/order/risk.go"],
+            interfaces=["Produces: shouldSkip(scene RiskScene) bool"],
+            steps=["实现保护"],
+            acceptance_criteria=["远程 UT 验证失败降级"],
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["stages"]["spec"]["status"], "passed")
+        self.assertEqual(status["stages"]["location"]["status"], "passed")
+        self.assertEqual(status["stages"]["plan"]["status"], "passed")
+        self.assertEqual(status["spec_amendment"]["task"], 1)
+        self.assertEqual([item["task"] for item in status["spec_amendment_chain"]], [1])
+        self.assertFalse(status["current_task"])
 
     def test_advance_rejects_allowed_but_unstaged_changes(self) -> None:
         self.initialize_git()
@@ -1917,6 +2363,39 @@ console.log(JSON.stringify({ blocked: renderTasks(blocked), locked: renderTasks(
         self.assertIn('id="authorize-next"', rendered["recoverable"])
         self.assertNotIn('id="authorize-next"', rendered["locked"])
         self.assertNotIn('id="authorize-next"', rendered["stale"])
+
+    def test_dashboard_marks_spec_change_as_current_task_amendment(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = { querySelector: selector => selector === "#app" ? appNode : null, querySelectorAll: () => [] };
+globalThis.window = { location: new URL("file:///dashboard/index.html?tab=spec"), history: { replaceState: () => {} } };
+"""
+            + javascript
+            + """
+const data = {
+  ...sampleData,
+  spec_amendment: { task: 1, summary: "补充当前任务接口与验收", amended_spec_sha256: "new-sha" },
+  current_task: { ...sampleData.current_task, title: "规格修正后的任务标题", allowed_files: ["updated-scope.go"], spec_amendment: { task: 1, summary: "补充当前任务接口与验收" } }
+};
+console.log(JSON.stringify({ spec: renderDocumentTab(data, "spec"), tasks: renderTasks(data) }));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertIn("本轮任务附加修正", rendered["spec"])
+        self.assertIn("Task 1", rendered["spec"])
+        self.assertIn("补充当前任务接口与验收", rendered["spec"])
+        self.assertIn("规格已同步修正", rendered["tasks"])
+        self.assertIn("规格修正后的任务标题", rendered["tasks"])
+        self.assertIn("updated-scope.go", rendered["tasks"])
+        self.assertNotIn("重新生成", rendered["spec"])
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(

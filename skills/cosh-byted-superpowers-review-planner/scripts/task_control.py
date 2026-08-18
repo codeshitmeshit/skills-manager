@@ -74,6 +74,14 @@ def _strip_line_range(path: str) -> str:
     return re.sub(r":\d+(?:-\d+)?$", "", path.strip())
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def parse_superpowers_plan(path: Path) -> list[dict[str, Any]]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -161,6 +169,12 @@ def _is_workflow_metadata(path: str) -> bool:
 
 
 def _unstaged_paths(project_root: Path) -> list[str]:
+    return [
+        path for path in _raw_unstaged_paths(project_root) if not _is_workflow_metadata(path)
+    ]
+
+
+def _raw_unstaged_paths(project_root: Path) -> list[str]:
     tracked = _run_git(project_root, ["diff", "--name-only", "-z"]).stdout
     untracked = _run_git(
         project_root, ["ls-files", "--others", "--exclude-standard", "-z"]
@@ -169,7 +183,7 @@ def _unstaged_paths(project_root: Path) -> list[str]:
         {
             path
             for path in (*tracked.split("\0"), *untracked.split("\0"))
-            if path and not _is_workflow_metadata(path)
+            if path
         }
     )
 
@@ -205,6 +219,21 @@ def current_snapshot_sha(project_root: Path) -> str:
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _task_snapshot_sha(
+    project_root: Path, amendment: Mapping[str, Any] | list[dict[str, Any]] | None
+) -> str:
+    base = current_snapshot_sha(project_root)
+    if not amendment:
+        return base
+    digest = hashlib.sha256()
+    digest.update(base.encode("utf-8"))
+    digest.update(b"\0spec-amendment\0")
+    digest.update(
+        json.dumps(amendment, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    )
     return digest.hexdigest()
 
 
@@ -312,6 +341,166 @@ def _authorized_task(
     return candidate if candidate == next_task else None
 
 
+def _normalize_spec_amendment(
+    amendment: Mapping[str, Any],
+    *,
+    task_number: int,
+    spec_relative: str,
+    base_spec_sha: str,
+    plan_sha: str,
+) -> dict[str, Any]:
+    if amendment.get("status") != "passed":
+        raise TaskControlConflict("当前 Task 的规格附加修正尚未确认")
+    if amendment.get("task") != task_number:
+        raise TaskControlConflict("规格附加修正与文件标识的 Task 不一致")
+    if amendment.get("spec_path") != spec_relative:
+        raise TaskControlConflict("规格附加修正与规格路径不一致")
+    if amendment.get("base_spec_sha256") != base_spec_sha:
+        raise TaskControlConflict("规格附加修正与上一版规格 SHA-256 不一致")
+    amended_spec_sha = amendment.get("amended_spec_sha256")
+    if not isinstance(amended_spec_sha, str) or len(amended_spec_sha) != 64:
+        raise TaskControlConflict("规格附加修正缺少有效的修正后 SHA-256")
+    if amendment.get("base_plan_sha256") != plan_sha:
+        raise TaskControlConflict("规格附加修正与原计划 SHA-256 不一致")
+    for field in ("summary", "diff"):
+        if not isinstance(amendment.get(field), str) or not amendment[field].strip():
+            raise TaskControlConflict(f"规格附加修正缺少 {field}")
+    override = amendment.get("task_override")
+    if not isinstance(override, dict):
+        raise TaskControlConflict("规格附加修正缺少 task_override")
+    title = override.get("title")
+    allowed_files = override.get("allowed_files")
+    interfaces = override.get("interfaces")
+    steps = override.get("steps")
+    acceptance = override.get("acceptance_criteria")
+    if not isinstance(title, str) or not title.strip():
+        raise TaskControlConflict("Task 附加修正缺少 title")
+    for field, values in (
+        ("allowed_files", allowed_files),
+        ("interfaces", interfaces),
+        ("steps", steps),
+        ("acceptance_criteria", acceptance),
+    ):
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(value, str) or not value.strip() for value in values)
+        ):
+            raise TaskControlConflict(f"Task 附加修正的 {field} 必须是非空字符串数组")
+    normalized = dict(amendment)
+    normalized["task_override"] = {
+        "title": title.strip(),
+        "allowed_files": list(dict.fromkeys(allowed_files)),
+        "interfaces": list(dict.fromkeys(interfaces)),
+        "steps": [
+            {"done": False, "title": step.strip()}
+            for step in dict.fromkeys(steps)
+        ],
+        "acceptance_criteria": list(dict.fromkeys(acceptance)),
+    }
+    return normalized
+
+
+def _spec_amendment_chain(
+    project_root: Path,
+    work_dir: Path,
+    current_task_number: int | None,
+    completed: set[int],
+) -> list[dict[str, Any]]:
+    spec_evidence = _read_json(work_dir / "evidence" / "spec.json")
+    spec_relative = spec_evidence.get("path")
+    base_spec_sha = spec_evidence.get("sha256")
+    if not isinstance(spec_relative, str) or not spec_relative:
+        raise TaskControlConflict("规格证据缺少 path")
+    if not isinstance(base_spec_sha, str) or len(base_spec_sha) != 64:
+        raise TaskControlConflict("规格证据缺少有效 SHA-256")
+    root = project_root.resolve()
+    spec_path = (root / spec_relative).resolve()
+    try:
+        spec_path.relative_to(root)
+    except ValueError as error:
+        raise TaskControlConflict("规格产物路径越界") from error
+    if not spec_path.is_file():
+        raise TaskControlConflict(f"规格产物不存在：{spec_relative}")
+    amended_spec_sha = _sha256_file(spec_path)
+    if amended_spec_sha == base_spec_sha:
+        return []
+
+    plan_evidence = _read_json(work_dir / "evidence" / "plan.json")
+    plan_relative = plan_evidence.get("path")
+    plan_sha = plan_evidence.get("sha256")
+    if not isinstance(plan_sha, str) or len(plan_sha) != 64:
+        raise TaskControlConflict("计划证据缺少有效 SHA-256")
+    if not isinstance(plan_relative, str) or not (root / plan_relative).is_file():
+        raise TaskControlConflict("规格附加修正引用的原计划不存在")
+    if _sha256_file(root / plan_relative) != plan_sha:
+        raise TaskControlConflict("原计划已变化，不能套用当前 Task 附加修正")
+    allowed_tasks = set(completed)
+    if current_task_number is not None:
+        allowed_tasks.add(current_task_number)
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for path in sorted((work_dir / "evidence").glob("spec-amendment-task*.json")):
+        match = re.fullmatch(r"spec-amendment-task(\d+)\.json", path.name)
+        if not match:
+            continue
+        task_number = int(match.group(1))
+        if task_number not in allowed_tasks:
+            continue
+        candidates.append((task_number, _read_json(path)))
+
+    chain: list[dict[str, Any]] = []
+    current_sha = base_spec_sha
+    used_tasks: set[int] = set()
+    while current_sha != amended_spec_sha:
+        matches = [
+            (task_number, amendment)
+            for task_number, amendment in candidates
+            if amendment.get("base_spec_sha256") == current_sha
+            and task_number not in used_tasks
+        ]
+        if not matches:
+            raise TaskControlConflict("缺少当前 Task 的规格附加修正")
+        if len(matches) > 1:
+            raise TaskControlConflict("规格附加修正链存在分叉，拒绝自动选择")
+        task_number, amendment = matches[0]
+        normalized = _normalize_spec_amendment(
+            amendment,
+            task_number=task_number,
+            spec_relative=spec_relative,
+            base_spec_sha=current_sha,
+            plan_sha=plan_sha,
+        )
+        chain.append(normalized)
+        used_tasks.add(task_number)
+        current_sha = str(normalized["amended_spec_sha256"])
+    return chain
+
+
+def _apply_task_override(
+    task: Mapping[str, Any], amendment: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    if not amendment:
+        return dict(task)
+    override = amendment["task_override"]
+    return {
+        **task,
+        **override,
+        "spec_amendment": {
+            key: amendment.get(key)
+            for key in (
+                "task",
+                "spec_path",
+                "base_spec_sha256",
+                "amended_spec_sha256",
+                "base_plan_sha256",
+                "summary",
+                "diff",
+                "updated_at",
+            )
+        },
+    }
+
+
 def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
     work_dir = _work_dir(project_root, work_id)
     tasks = parse_superpowers_plan(find_plan(project_root, work_id))
@@ -332,6 +521,32 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
         if next_incomplete and next_incomplete["number"] == authorized_task
         else None
     )
+    spec_amendment_chain: list[dict[str, Any]] = []
+    spec_amendment: dict[str, Any] | None = None
+    current_spec_amendment: dict[str, Any] | None = None
+    spec_amendment_error = ""
+    try:
+        spec_amendment_chain = _spec_amendment_chain(
+            project_root,
+            work_dir,
+            int(current["number"]) if current is not None else None,
+            completed,
+        )
+        spec_amendment = (
+            spec_amendment_chain[-1] if spec_amendment_chain else None
+        )
+        if current is not None:
+            current_spec_amendment = next(
+                (
+                    amendment
+                    for amendment in reversed(spec_amendment_chain)
+                    if amendment.get("task") == current["number"]
+                ),
+                None,
+            )
+            current = _apply_task_override(current, current_spec_amendment)
+    except TaskControlError as error:
+        spec_amendment_error = str(error)
     scope_violation_files: list[str] = []
     approval_blockers: list[str] = []
     authorization_check_failed = False
@@ -355,7 +570,7 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
         try:
             staged = _staged_paths(project_root)
             changed = changed_paths(project_root)
-            snapshot_sha = current_snapshot_sha(project_root)
+            snapshot_sha = _task_snapshot_sha(project_root, spec_amendment_chain)
             out_of_scope = validate_task_scope(project_root, current)
         except TaskControlError:
             pass
@@ -377,6 +592,16 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
     if current is not None:
         changed = changed_paths(project_root)
         unstaged = _unstaged_paths(project_root)
+        amendment_spec_path = (
+            str(current_spec_amendment.get("spec_path"))
+            if current_spec_amendment
+            else ""
+        )
+        amendment_staged = not amendment_spec_path or amendment_spec_path in staged
+        amendment_unstaged = bool(
+            amendment_spec_path
+            and amendment_spec_path in _raw_unstaged_paths(project_root)
+        )
         remote_ut_passed = _evidence_matches_snapshot(
             work_dir, "remote-ut", current["number"], snapshot_sha
         )
@@ -390,15 +615,32 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             advance_blockers.append("仍有尚未暂存的改动：" + ", ".join(unstaged))
         if out_of_scope:
             advance_blockers.append("存在当前任务范围外文件：" + ", ".join(out_of_scope))
+        if spec_amendment_error:
+            advance_blockers.append(spec_amendment_error)
+        if not amendment_staged:
+            advance_blockers.append("规格附加修正产物尚未暂存")
+        if amendment_unstaged:
+            advance_blockers.append("规格附加修正产物仍有尚未暂存的内容")
         if not remote_ut_passed:
-            advance_blockers.append("当前工作区快照的远程 UT 尚未通过")
+            advance_blockers.append(
+                "规格附加修正后的当前工作区快照远程 UT 尚未通过"
+                if current_spec_amendment
+                else "当前工作区快照的远程 UT 尚未通过"
+            )
         if not cr_passed:
-            advance_blockers.append("当前工作区快照的 CR 尚未通过")
+            advance_blockers.append(
+                "规格附加修正后的当前工作区快照 CR 尚未通过"
+                if current_spec_amendment
+                else "当前工作区快照的 CR 尚未通过"
+            )
         can_advance = (
             mode == "single"
             and bool(staged)
             and not unstaged
             and not out_of_scope
+            and not spec_amendment_error
+            and amendment_staged
+            and not amendment_unstaged
             and remote_ut_passed
             and cr_passed
         )
@@ -430,6 +672,9 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
         else None,
         "scope_violation_files": scope_violation_files,
         "approval_blockers": approval_blockers,
+        "spec_amendment": spec_amendment or {},
+        "spec_amendment_chain": spec_amendment_chain,
+        "spec_amendment_error": spec_amendment_error,
         "can_authorize": bool(
             mode == "single"
             and next_incomplete is not None
@@ -571,6 +816,18 @@ def advance_task(
         raise TaskControlConflict(
             f"Task {current['number']} 尚未获得用户推进授权"
         )
+    amendment_chain = _spec_amendment_chain(
+        project_root, work_dir, int(current["number"]), completed
+    )
+    amendment = next(
+        (
+            item
+            for item in reversed(amendment_chain)
+            if item.get("task") == current["number"]
+        ),
+        None,
+    )
+    current = _apply_task_override(current, amendment)
     if current["number"] != expected_task:
         raise TaskControlConflict(
             f"当前实施子任务是 Task {current['number']}，不是 Task {expected_task}"
@@ -579,6 +836,12 @@ def advance_task(
     staged = _staged_paths(project_root)
     if not staged:
         raise TaskControlConflict("暂存区为空，不能创建空提交")
+    if amendment:
+        amendment_spec_path = str(amendment.get("spec_path", ""))
+        if amendment_spec_path not in staged:
+            raise TaskControlConflict("规格附加修正产物尚未暂存")
+        if amendment_spec_path in _raw_unstaged_paths(project_root):
+            raise TaskControlConflict("规格附加修正产物仍有尚未暂存的内容")
     out_of_scope = validate_task_scope(project_root, current)
     if out_of_scope:
         raise TaskControlConflict(
@@ -589,7 +852,7 @@ def advance_task(
         raise TaskControlConflict(
             "工作区仍有尚未暂存的改动：" + ", ".join(unstaged)
         )
-    snapshot_sha = current_snapshot_sha(project_root)
+    snapshot_sha = _task_snapshot_sha(project_root, amendment_chain)
     _validate_task_evidence(work_dir, expected_task, snapshot_sha)
     message = format_task_commit(
         work_id, expected_task, commit_type, summary
