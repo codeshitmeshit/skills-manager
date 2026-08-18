@@ -111,6 +111,48 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             },
         )
 
+    def write_revision_assessment(
+        self,
+        *,
+        frozen_version: int = 1,
+        frozen_content: str | None = None,
+        decision: str = "carry-forward",
+        semantic_changes: dict | None = None,
+    ) -> None:
+        frozen_content = frozen_content if frozen_content is not None else self.source_text
+        frozen_path = self.work / "sources" / f"technical-design-v{frozen_version}.md"
+        frozen_path.parent.mkdir(parents=True, exist_ok=True)
+        frozen_path.write_text(frozen_content, encoding="utf-8")
+        current = self.current_binding()
+        dimensions = {
+            "goals": False,
+            "scope": False,
+            "api_contracts": False,
+            "data_model": False,
+            "runtime_behavior": False,
+            "dependency_topology": False,
+            "security_boundary": False,
+            "stability_strategy": False,
+            "rollout_rollback": False,
+            "acceptance_criteria": False,
+        }
+        dimensions.update(semantic_changes or {})
+        self.write_json(
+            self.work / "evidence" / "revision-assessment.json",
+            {
+                "frozen_version": frozen_version,
+                "frozen_sha256": self.sha256(frozen_content),
+                "frozen_path": str(frozen_path.relative_to(self.work)),
+                "current_version": current["source_version"],
+                "current_sha256": current["source_sha256"],
+                "decision": decision,
+                "semantic_changes": dimensions,
+                "changed_sections": ["依赖装配"],
+                "rationale": "补充现有 UpdaterGateway 的依赖装配位置，不改变运行语义",
+                "updated_at": "2026-08-02T10:15:00+08:00",
+            },
+        )
+
     def write_workflow(self, mode: str = "single", engine: str = "superpowers") -> None:
         self.write_json(
             self.work / "workflow.json",
@@ -572,6 +614,83 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertEqual(status["stages"]["codegraph"]["status"], "blocked")
         self.assertEqual(status["stages"]["review"]["status"], "blocked")
         self.assertTrue(status["reviews"]["history"])
+
+    def test_supplemental_revision_inherits_frozen_document_evidence(self) -> None:
+        self.write_complete_review_round()
+        self.write_source(
+            version=2,
+            content=self.source_text
+            + "\n补充：复用现有 UpdaterGateway 注入已注册的旧库 Repo。\n",
+        )
+        self.write_revision_assessment()
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["revision_assessment"]["decision"], "carry-forward")
+        self.assertEqual(status["revision_assessment"]["status"], "passed")
+        self.assertEqual(status["revision_assessment"]["inherited_from_version"], 1)
+        self.assertEqual(status["stages"]["knowledge_gate"]["status"], "passed")
+        self.assertEqual(status["stages"]["codegraph"]["status"], "passed")
+        self.assertEqual(status["stages"]["review"]["status"], "passed")
+
+    def test_material_revision_still_requires_current_full_review(self) -> None:
+        self.write_complete_review_round()
+        self.write_source(version=2, content="# 改为新的跨服务写入链路\n")
+        self.write_revision_assessment(
+            decision="full-review",
+            semantic_changes={"runtime_behavior": True, "dependency_topology": True},
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["revision_assessment"]["decision"], "full-review")
+        self.assertEqual(status["revision_assessment"]["status"], "passed")
+        self.assertEqual(status["stages"]["knowledge_gate"]["status"], "blocked")
+        self.assertEqual(status["stages"]["codegraph"]["status"], "blocked")
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
+
+    def test_carry_forward_fails_closed_when_any_semantic_dimension_changed(self) -> None:
+        self.write_complete_review_round()
+        self.write_source(version=2, content="# 修改鉴权边界\n")
+        self.write_revision_assessment(
+            decision="carry-forward",
+            semantic_changes={"security_boundary": True},
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["revision_assessment"]["status"], "blocked")
+        self.assertEqual(status["stages"]["source"]["status"], "blocked")
+        self.assertEqual(status["stages"]["review"]["status"], "blocked")
+
+    def test_carry_forward_requires_untampered_frozen_document(self) -> None:
+        self.write_complete_review_round()
+        self.write_source(version=2, content=self.source_text + "\n补充说明。\n")
+        self.write_revision_assessment()
+        (self.work / "sources" / "technical-design-v1.md").write_text(
+            "# 被篡改的冻结文档\n", encoding="utf-8"
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["revision_assessment"]["status"], "blocked")
+        self.assertIn("冻结文档", " ".join(status["stages"]["source"]["blockers"]))
+
+    def test_carry_forward_keeps_waivers_bound_to_current_document(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [{"id": "SEC-P2-CARRY", "severity": "P2", "blocking": True, "title": "可监控风险", "evidence": "technical-design.md:50", "recommendation": "后续闭环", "status": "open"}]
+        self.write_json(review_path, review)
+        self.write_source(version=2, content=self.source_text + "\n补充已有行为说明。\n")
+        self.write_revision_assessment()
+        before = SERVER.build_status(self.root, self.work_id)
+
+        after = SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": before["reviews"]["findings"][0]["finding_key"], "blocking": False, "reason": "当前版本已确认风险可监控", "expected_version": before["version"], "idempotency_key": "waive-current-carry"})
+
+        self.assertEqual(after["stages"]["review"]["status"], "passed")
+        self.assertEqual(after["reviews"]["findings"][0]["waiver"]["source_version"], 2)
 
     def test_stale_code_sha_invalidates_reviews(self) -> None:
         self.write_complete_review_round()
@@ -1509,6 +1628,25 @@ console.log(renderReview(data));
         css = (SKILL_DIR / "assets" / "dashboard" / "styles.css").read_text(encoding="utf-8")
         for severity in ("p0", "p1", "p2", "p3"):
             self.assertIn(f".severity-{severity}", css)
+
+    def test_review_renders_frozen_document_revision_decision(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(encoding="utf-8")
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = { querySelector: selector => selector === "#app" ? appNode : null, querySelectorAll: () => [] };
+globalThis.window = { location: new URL("file:///dashboard/index.html?tab=review"), history: { replaceState: () => {} } };
+"""
+            + javascript
+            + """
+const data = { ...sampleData, revision_assessment: { status: "passed", decision: "carry-forward", inherited_from_version: 7 } };
+console.log(renderReview(data));
+"""
+        )
+        result = subprocess.run(["node", "-"], input=runner, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("无需全量复评", result.stdout)
+        self.assertIn("冻结文档 v7", result.stdout)
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(

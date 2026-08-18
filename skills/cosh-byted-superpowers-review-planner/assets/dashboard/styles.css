@@ -83,6 +83,9 @@ h2, h3, p { margin-top: 0; }
 .stage-detail-row.fix dd { color: var(--blue); }
 .section-title, .mode-control { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .knowledge-mode { color: var(--blue); border: 1px solid #35517d; border-radius: 999px; padding: 7px 12px; }
+.revision-decision { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font-weight: 750; }
+.revision-decision.inherited { color: var(--green); border-color: rgba(108, 222, 179, .42); }
+.revision-decision.full, .revision-decision.invalid { color: var(--yellow); border-color: rgba(242, 196, 95, .42); }
 .review-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0; }
 .review-track { display: grid; gap: 7px; border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
 .review-track span { color: var(--muted); }

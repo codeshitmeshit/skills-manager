@@ -225,9 +225,23 @@ function findingBlockingControl(finding, stale) {
   return `<span class="finding-state ${finding.effective_blocking ? "forced" : "waived"}">${finding.effective_blocking ? "阻塞" : "不阻塞"}</span>`;
 }
 
+function revisionDecisionBadge(data) {
+  const assessment = data.revision_assessment || {};
+  if (assessment.status === "passed" && assessment.decision === "carry-forward") {
+    return `<span class="revision-decision inherited">冻结文档 v${escapeHtml(assessment.inherited_from_version)} · 无需全量复评</span>`;
+  }
+  if (assessment.status === "passed" && assessment.decision === "full-review") {
+    return '<span class="revision-decision full">存在语义变化 · 需要全量复评</span>';
+  }
+  if (assessment.status === "blocked") {
+    return '<span class="revision-decision invalid">文档差异判断无效</span>';
+  }
+  return `<span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span>`;
+}
+
 function renderReview(data) {
   const reviews = data.reviews || { reviewers: {}, findings: [], history: [] };
-  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div><span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span></div><p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => {
+  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div>${revisionDecisionBadge(data)}</div><p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => {
     const status = review.effective_status || review.status;
     return `<article class="review-track ${escapeHtml(status)}"><strong>${reviewerLabel(name)}</strong><span>${escapeHtml(status)}</span><small>${escapeHtml(review.stage || "")}</small></article>`;
   }).join("") || '<p class="empty">等待三路评审</p>'}</div><div class="risk-list"><h3>风险点</h3>${(reviews.findings || []).map(finding => {

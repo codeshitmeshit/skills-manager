@@ -86,12 +86,14 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertNotIn("通用规则降级", self.review)
         self.assertIn("直接阻塞", self.review)
 
-    def test_document_revision_restarts_the_complete_review(self) -> None:
+    def test_document_revision_compares_frozen_source_before_rerunning_review(self) -> None:
         self.assertIn("技术文档修改", self.workflow)
-        self.assertIn("重新进入知识门禁", self.workflow)
-        self.assertIn("三路完整评审", self.workflow)
-        self.assertIn("旧版本", self.workflow)
-        self.assertIn("不能只复审", self.workflow)
+        self.assertIn("冻结快照", self.workflow)
+        self.assertIn("revision-assessment.json", self.workflow)
+        self.assertIn("carry-forward", self.workflow)
+        self.assertIn("full-review", self.workflow)
+        self.assertIn("从知识门禁执行完整流程", self.workflow)
+        self.assertIn("fail closed", self.workflow)
 
     def test_coding_requires_minimal_surface_chinese_comments_and_logs(self) -> None:
         standards = (

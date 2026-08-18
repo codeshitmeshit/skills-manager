@@ -28,6 +28,10 @@ loaded 模式记录版本、七个必需来源角色、实际文件路径、SHA-
 
 ## 修改与复评
 
-任一路存在阻塞时展示风险点、证据和建议修改。用户选择技术文档修改后，只修改明确关联章节，生成新版本与 diff；旧结论保留为历史但立即失效。
+任一路存在阻塞时展示风险点、证据和建议修改。用户选择技术文档修改后，只修改明确关联章节，生成新版本，并与最近一次全量评审通过的冻结文档比较。冻结文件保存到当前 work 的 `sources/`，文件内容与记录的 SHA-256 必须一致；不能拿可变的当前文档或任意历史版本冒充冻结基线。
 
-新版本必须重新进入知识门禁、CodeGraph 和三路完整评审，不能只复审未通过 Reviewer。循环直到当前版本三路全部通过，或用户停止。
+把判断写入 `evidence/revision-assessment.json`，至少包含 `frozen_version`、`frozen_sha256`、`frozen_path`、`current_version`、`current_sha256`、`decision`、`semantic_changes`、`changed_sections`、`rationale` 和 `updated_at`。`semantic_changes` 必须逐项给出布尔值：`goals`、`scope`、`api_contracts`、`data_model`、`runtime_behavior`、`dependency_topology`、`security_boundary`、`stability_strategy`、`rollout_rollback`、`acceptance_criteria`。
+
+只有以下条件同时成立时才能写 `decision: carry-forward`：修改仅为解释、例子、格式、错别字或对既有代码事实的澄清；上述十个语义维度全部为 `false`；冻结与当前版本、路径、哈希均可验证；`changed_sections` 和 `rationale` 非空。例如，把已经由 `UpdaterGateway` 注入的旧库 Repo 补写进文档，且不改变真实依赖链、运行行为和验收标准，可继承旧结论。
+
+只要任一语义维度变化，或无法证明变更与既有代码事实一致，就写 `decision: full-review`。此时新版本重新进入知识门禁、CodeGraph 和三路完整评审，不能只复审未通过 Reviewer。缺失或伪造判断证据必须 fail closed。继承只改变门禁投影，不修改旧 Reviewer、知识、CodeGraph 或闭环原始证据；非 P0 豁免仍绑定当前文档版本，不能跨修订自动继承。

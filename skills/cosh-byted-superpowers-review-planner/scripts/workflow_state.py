@@ -35,6 +35,18 @@ ACTIVE_FINDING_STATUSES = {"open", "pending", "pending_confirmation"}
 CLOSED_FINDING_STATUSES = {"resolved", "closed"}
 VALID_FINDING_STATUSES = ACTIVE_FINDING_STATUSES | CLOSED_FINDING_STATUSES
 DASHBOARD_STATE_FILENAME = "dashboard-state.json"
+SEMANTIC_CHANGE_DIMENSIONS = (
+    "goals",
+    "scope",
+    "api_contracts",
+    "data_model",
+    "runtime_behavior",
+    "dependency_topology",
+    "security_boundary",
+    "stability_strategy",
+    "rollout_rollback",
+    "acceptance_criteria",
+)
 
 
 class DashboardError(RuntimeError):
@@ -175,6 +187,90 @@ def _matches_source(evidence: Mapping[str, Any], source: Mapping[str, Any]) -> b
         evidence.get("source_version") == source.get("version")
         and evidence.get("source_sha256") == source.get("sha256")
     )
+
+
+def _project_revision_assessment(
+    work_dir: Path, source: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """验证冻结文档比较证据，并返回门禁证据应绑定的来源版本。"""
+    path = work_dir / "evidence" / "revision-assessment.json"
+    if not path.is_file():
+        return {
+            "status": "not-required",
+            "decision": "full-review",
+            "requires_full_review": True,
+        }, dict(source)
+    try:
+        assessment = _read_json(path)
+        blockers: list[str] = []
+        if assessment.get("current_version") != source.get("version") or assessment.get(
+            "current_sha256"
+        ) != source.get("sha256"):
+            blockers.append("修订影响判断与当前技术文档版本或 SHA-256 不一致")
+        frozen_version = assessment.get("frozen_version")
+        frozen_sha256 = assessment.get("frozen_sha256")
+        frozen_path = assessment.get("frozen_path")
+        if not isinstance(frozen_version, int) or frozen_version < 1:
+            blockers.append("冻结文档版本必须是正整数")
+        if isinstance(frozen_version, int) and frozen_version >= source.get("version", 0):
+            blockers.append("冻结文档版本必须早于当前技术文档")
+        if not isinstance(frozen_sha256, str) or len(frozen_sha256) != 64:
+            blockers.append("冻结文档缺少有效 SHA-256")
+        if not isinstance(frozen_path, str) or not frozen_path:
+            blockers.append("冻结文档缺少有效路径")
+        else:
+            snapshot = _safe_child(work_dir, frozen_path)
+            if not snapshot.is_file():
+                blockers.append("冻结文档不存在")
+            elif isinstance(frozen_sha256, str) and _sha256_file(snapshot) != frozen_sha256:
+                blockers.append("冻结文档 SHA-256 不一致")
+
+        decision = assessment.get("decision")
+        if decision not in {"carry-forward", "full-review"}:
+            blockers.append("修订影响判断 decision 必须是 carry-forward 或 full-review")
+        changes = assessment.get("semantic_changes")
+        if not isinstance(changes, dict):
+            blockers.append("修订影响判断缺少 semantic_changes")
+            changes = {}
+        for dimension in SEMANTIC_CHANGE_DIMENSIONS:
+            if not isinstance(changes.get(dimension), bool):
+                blockers.append(f"semantic_changes.{dimension} 必须是布尔值")
+        changed_sections = assessment.get("changed_sections")
+        if not isinstance(changed_sections, list) or not changed_sections or any(
+            not isinstance(item, str) or not item.strip() for item in changed_sections
+        ):
+            blockers.append("修订影响判断必须记录非空 changed_sections")
+        rationale = assessment.get("rationale")
+        if not isinstance(rationale, str) or not rationale.strip():
+            blockers.append("修订影响判断必须记录 rationale")
+        if decision == "carry-forward" and any(
+            changes.get(dimension) is True for dimension in SEMANTIC_CHANGE_DIMENSIONS
+        ):
+            blockers.append("存在方案语义变化，不能继承冻结版本评审证据")
+
+        status = "blocked" if blockers else "passed"
+        projected = {
+            **assessment,
+            "status": status,
+            "blockers": blockers,
+            "requires_full_review": decision != "carry-forward" or bool(blockers),
+            "inherited_from_version": frozen_version
+            if decision == "carry-forward" and not blockers
+            else None,
+        }
+        evidence_source = (
+            {"version": frozen_version, "sha256": frozen_sha256}
+            if decision == "carry-forward" and not blockers
+            else dict(source)
+        )
+        return projected, evidence_source
+    except DashboardError as error:
+        return {
+            "status": "blocked",
+            "decision": "full-review",
+            "requires_full_review": True,
+            "blockers": [str(error)],
+        }, dict(source)
 
 
 def _project_knowledge_gate(
@@ -339,7 +435,9 @@ def _project_reviews(
     source: Mapping[str, Any],
     codegraph: Mapping[str, Any],
     codegraph_stage: Mapping[str, Any],
+    control_source: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    waiver_source = control_source or source
     reviews, errors = _read_reviews(work_dir)
     history = sorted(reviews, key=lambda item: (int(item.get("round", 0)), str(item.get("reviewer", ""))))
     result: dict[str, Any] = {"round": None, "reviewers": {}, "findings": [], "history": history}
@@ -411,8 +509,8 @@ def _project_reviews(
                 and override.get("blocking") is False
                 and isinstance(override.get("reason"), str)
                 and override.get("reason", "").strip()
-                and override.get("source_version") == source.get("version")
-                and override.get("source_sha256") == source.get("sha256")
+                and override.get("source_version") == waiver_source.get("version")
+                and override.get("source_sha256") == waiver_source.get("sha256")
                 and override.get("review_round") == current_round
                 and override.get("reviewer") == reviewer
                 and override.get("finding_id") == normalized.get("id")
@@ -792,6 +890,17 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         LOGGER.warning("开发任务 %s 的 workflow.json 不可读：%s", work_dir.name, error)
 
     source, source_stage = _validate_source(work_dir)
+    revision_assessment, evidence_source = _project_revision_assessment(
+        work_dir, source
+    )
+    if revision_assessment.get("status") == "blocked":
+        source_stage = _stage(
+            "blocked",
+            list(revision_assessment.get("blockers", [])),
+            fix="修正冻结文档与当前文档的修订影响判断后重试",
+            version=source.get("version"),
+            updated_at=str(revision_assessment.get("updated_at", "")),
+        )
     engine = workflow.get("engine")
     if engine != "superpowers":
         source_stage = _stage(
@@ -804,13 +913,17 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
             version=source_stage.get("version"),
             updated_at=str(source_stage.get("updated_at", "")),
         )
-    knowledge, knowledge_stage = _project_knowledge_gate(work_dir, source, source_stage)
-    codegraph, codegraph_stage = _project_codegraph(work_dir, source, knowledge_stage)
+    knowledge, knowledge_stage = _project_knowledge_gate(
+        work_dir, evidence_source, source_stage
+    )
+    codegraph, codegraph_stage = _project_codegraph(
+        work_dir, evidence_source, knowledge_stage
+    )
     reviews, review_stage = _project_reviews(
-        work_dir, source, codegraph, codegraph_stage
+        work_dir, evidence_source, codegraph, codegraph_stage, source
     )
     closure_stage = _project_review_closure(
-        work_dir, source, reviews, review_stage
+        work_dir, evidence_source, reviews, review_stage
     )
     stages = {name: _stage() for name in STAGE_ORDER}
     stages.update(
@@ -825,15 +938,15 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
 
     task_projection = _project_tasks(project_root, work_dir.name)
     spec_evidence, spec_stage = _project_spec(
-        project_root, work_dir, source, knowledge, closure_stage
+        project_root, work_dir, evidence_source, knowledge, closure_stage
     )
     location_evidence, location_stage = _project_location(
-        work_dir, source, spec_evidence, spec_stage, codegraph
+        work_dir, evidence_source, spec_evidence, spec_stage, codegraph
     )
     plan_evidence, plan_stage = _project_plan(
         project_root,
         work_dir,
-        source,
+        evidence_source,
         location_evidence,
         location_stage,
         task_projection,
@@ -895,6 +1008,7 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         "work": work_dir.name,
         "engine": engine or "missing",
         "source": source,
+        "revision_assessment": revision_assessment,
         "mode": workflow.get("mode", "single"),
         "version": _state_version(work_dir),
         "stages": stages,

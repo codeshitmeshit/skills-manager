@@ -44,7 +44,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 本流程与 Hammer 在整个研发任务内硬互斥。选择本流程后，只能使用原生 Superpowers；禁止调用 `hammer`、`hammer-design`、`hammer-plan`、`hammer-execute`、`hammer-report`、`hammer-sync`、`hammer-lite`、`hammer-knowledge` 及其他 Hammer 流程，也不得读取、继承或写入 Hammer 状态和产物。
 - 接收技术文档后，先完成 AI-Spec 知识门禁、CodeGraph 事实扫描以及稳定性、安全性、可行性三个独立 Subagent 评审；三路不得相互代替或继承过程结论。
 - AI-Spec 必须安装或更新成功并完整加载部门知识；不支持通用规则或其他知识源降级，接入失败时直接阻塞。
-- 技术文档修改后，旧知识证据、CodeGraph 快照和三路结论全部失效，重新进入知识门禁并执行三路完整评审；不能只复审上次未通过项。
+- 技术文档修改前保留最近一次全量评审通过的冻结文档；修改后按 [`references/byted-admission-review.md`](references/byted-admission-review.md) 比较冻结文档与当前文档。只有可验证的非语义补充允许继承旧知识证据、CodeGraph 快照和三路结论；存在任一语义变化、证据缺失或判断不确定时，旧证据全部失效并重新执行完整评审。
 - 未闭合 P0 强制阻塞且不可豁免。P1/P2/P3 只有在用户填写原因后才能通过观察板设为不阻塞；保留 Reviewer 原始证据，把审计记录绑定到当前文档版本、哈希、评审轮次、Reviewer 和 finding ID，绑定变化后自动失效。
 - 评审闭环通过后才使用原生 Superpowers 生成规格与计划。保留原生产物格式，不写入字节专属控制字段。
 - 修改位置必须明确到仓库、文件、符号、变量或接口。优先复用原有基建；无法复用时新增职责单一的窄函数，不得扩大修改面。
@@ -63,8 +63,8 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 3. 自动安装或更新 AI-Spec 并记录知识证据；接入、更新、读取或证据校验失败时直接阻塞。
 4. 使用 CodeGraph 和当前源码形成代码事实快照，记录文件、符号、变量、接口、调用链、可复用基建和代码 SHA。
 5. 同时启动稳定性、安全性、可行性三个独立只读 Subagent，持续记录阶段、未通过风险点、证据和建议修改方式。
-6. 汇总结论。存在阻塞时保持在评审阶段，并提供可选的技术文档修改入口。
-7. 用户修改技术文档时生成新版本和 diff，从知识门禁重新执行完整评审，循环直到当前版本三路全部通过。
+6. 汇总结论。存在阻塞时保持在评审阶段，并提供可选的技术文档修改入口；全量评审通过后保存带版本与 SHA-256 的冻结文档快照。
+7. 用户修改技术文档时生成新版本和 diff，对比冻结文档并写入 `revision-assessment.json`。判断为 `carry-forward` 时继承冻结版本门禁；判断为 `full-review` 或判断证据无效时，从知识门禁重新执行完整评审。循环直到当前版本三路全部通过。
 8. 用户确认评审闭环后，使用 `superpowers:brainstorming` 生成原生规格并完成书面确认。
 9. 再次校验文件、符号、变量和接口定位；规格与代码事实冲突时退回评审。
 10. 使用 `superpowers:writing-plans` 生成原生实施计划，每个实施子任务声明允许修改范围、验证与完成条件。
@@ -119,6 +119,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 
 - 确认每个阶段的证据、版本、哈希、代码 SHA 和前置门禁有效。
 - 确认三个 Reviewer 独立完成且所有阻塞风险点已闭合。
+- 确认文档修订存在不可变冻结快照与完整差异判断；继承结论时所有语义变化维度均明确为 `false`。
 - 确认计划覆盖规格，实施范围精确到文件、符号和变量。
 - 确认只使用 BITS 远程 UT，并保留结构化通过证据。
 - 确认每个提交符合中文 Conventional Commits 与任务标识格式。
