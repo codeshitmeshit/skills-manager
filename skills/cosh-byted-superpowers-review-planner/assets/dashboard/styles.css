@@ -10,6 +10,7 @@
   --green: #71dfb0;
   --yellow: #f2c45f;
   --red: #ff7f84;
+  --orange: #ff9f5a;
 }
 
 * { box-sizing: border-box; }
@@ -89,12 +90,25 @@ h2, h3, p { margin-top: 0; }
 .review-track.blocked { border-color: rgba(255, 127, 132, .48); }
 .review-track.blocked span { color: var(--red); }
 .risk-list { margin-top: 24px; }
-.risk { border-left: 3px solid var(--red); background: #0d141e; border-radius: 10px; padding: 18px; margin-top: 12px; }
+.risk { --severity-color: var(--muted); border-left: 4px solid var(--severity-color); background: #0d141e; border-radius: 10px; padding: 18px; margin-top: 12px; }
+.risk.severity-p0, .severity-badge.severity-p0 { --severity-color: var(--red); }
+.risk.severity-p1, .severity-badge.severity-p1 { --severity-color: var(--orange); }
+.risk.severity-p2, .severity-badge.severity-p2 { --severity-color: var(--yellow); }
+.risk.severity-p3, .severity-badge.severity-p3 { --severity-color: var(--blue); }
 .risk > div { display: flex; justify-content: space-between; gap: 16px; }
 .risk dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin-bottom: 0; }
 .risk dt { color: var(--muted); }
 .risk code { white-space: pre-line; }
 .risk.schema-invalid { border-color: var(--red); }
+.severity-badge { color: var(--severity-color); border: 1px solid color-mix(in srgb, var(--severity-color) 55%, transparent); border-radius: 999px; padding: 4px 10px; font-weight: 850; }
+.finding-control { align-items: center; justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.finding-action { border: 1px solid #41608e; border-radius: 9px; padding: 9px 12px; color: var(--text); background: #182843; cursor: pointer; }
+.finding-action:disabled { cursor: not-allowed; opacity: .4; }
+.finding-state { font-weight: 800; }
+.finding-state.forced { color: var(--red); }
+.finding-state.waived, .finding-state.resolved { color: var(--green); }
+.finding-waiver { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.finding-waiver small { color: var(--muted); }
 .schema-warning { color: var(--red); font-weight: 700; }
 code, pre { font-family: "SFMono-Regular", Consolas, monospace; color: #a9c4ff; }
 .secondary-button, .advance-button, .segmented button, .document-link { border: 0; cursor: pointer; }

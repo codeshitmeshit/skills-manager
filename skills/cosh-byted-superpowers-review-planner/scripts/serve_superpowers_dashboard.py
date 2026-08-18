@@ -303,6 +303,70 @@ def _record_idempotency(
     _atomic_write_json(work_dir / "control.json", control)
 
 
+def _set_finding_blocking(
+    project_root: Path,
+    work_id: str,
+    expected_version: str,
+    finding_key: Any,
+    blocking: Any,
+    reason: Any,
+) -> None:
+    before = workflow_state.build_status(project_root, work_id)
+    if before["version"] != expected_version:
+        raise workflow_state.DashboardConflict("开发任务状态已经变化，请刷新后重试")
+    if not isinstance(finding_key, str) or not finding_key:
+        raise workflow_state.DashboardError("缺少 finding_key")
+    if not isinstance(blocking, bool):
+        raise workflow_state.DashboardError("blocking 必须是布尔值")
+    findings = before.get("reviews", {}).get("findings", [])
+    finding = next(
+        (item for item in findings if item.get("finding_key") == finding_key), None
+    )
+    if finding is None:
+        raise workflow_state.DashboardConflict("风险点已经变化，请刷新后重试")
+    if finding.get("status") not in workflow_state.ACTIVE_FINDING_STATUSES:
+        raise workflow_state.DashboardError("只能调整尚未闭合的风险点")
+    if not blocking:
+        if finding.get("severity") == "P0":
+            raise workflow_state.DashboardError("P0 风险强制阻塞，不允许设为不阻塞")
+        if not isinstance(reason, str) or not reason.strip():
+            raise workflow_state.DashboardError("设为不阻塞时必须填写原因")
+        if finding.get("raw_blocking") is not True:
+            raise workflow_state.DashboardError("该风险点的 Reviewer 原始结论并非阻塞")
+
+    work_dir = workflow_state.resolve_work(project_root, work_id)
+    control = _load_control(work_dir)
+    overrides = control.setdefault("finding_overrides", {})
+    history = control.setdefault("finding_override_history", [])
+    if not isinstance(overrides, dict) or not isinstance(history, list):
+        raise workflow_state.DashboardConflict("风险点控制状态格式无效，拒绝继续写入")
+    now = _iso_now()
+    audit = {
+        "finding_key": finding_key,
+        "blocking": blocking,
+        "reason": reason.strip() if isinstance(reason, str) else "",
+        "source_version": before.get("source", {}).get("version"),
+        "source_sha256": before.get("source", {}).get("sha256"),
+        "review_round": finding.get("round"),
+        "reviewer": finding.get("reviewer"),
+        "finding_id": finding.get("id"),
+        "updated_at": now,
+    }
+    if blocking:
+        overrides.pop(finding_key, None)
+    else:
+        overrides[finding_key] = audit
+    history.append(audit)
+    control["updated_at"] = now
+    _atomic_write_json(work_dir / "control.json", control)
+    LOGGER.info(
+        "已调整风险点阻塞状态：work=%s finding=%s blocking=%s",
+        work_id,
+        finding_key,
+        blocking,
+    )
+
+
 def _apply_control_locked(
     project_root: Path, payload: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -345,6 +409,15 @@ def _apply_control_locked(
         )
     elif action == "request-source-revision":
         _request_source_revision(project_root, work_id, expected_version)
+    elif action == "set-finding-blocking":
+        _set_finding_blocking(
+            project_root,
+            work_id,
+            expected_version,
+            payload.get("finding_key"),
+            payload.get("blocking"),
+            payload.get("reason"),
+        )
     elif action == "archive":
         before = workflow_state.build_status(project_root, work_id)
         if before["version"] != expected_version:

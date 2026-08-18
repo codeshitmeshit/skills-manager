@@ -343,6 +343,18 @@ def _project_reviews(
     reviews, errors = _read_reviews(work_dir)
     history = sorted(reviews, key=lambda item: (int(item.get("round", 0)), str(item.get("reviewer", ""))))
     result: dict[str, Any] = {"round": None, "reviewers": {}, "findings": [], "history": history}
+    finding_overrides: Mapping[str, Any] = {}
+    control_path = work_dir / "control.json"
+    if control_path.is_file():
+        try:
+            control = _read_json(control_path)
+            candidate_overrides = control.get("finding_overrides", {})
+            if isinstance(candidate_overrides, dict):
+                finding_overrides = candidate_overrides
+            else:
+                errors.append("finding_overrides 控制状态格式无效")
+        except DashboardError as error:
+            errors.append(str(error))
     if codegraph_stage["status"] != "passed" and not reviews:
         return result, _stage("pending", ["CodeGraph 事实扫描尚未通过"])
 
@@ -367,8 +379,6 @@ def _project_reviews(
         reviewer_errors: list[str] = []
         if review.get("code_sha") != expected_code_sha:
             reviewer_errors.append(f"{reviewer} Reviewer 的代码 SHA 已过期")
-        if review.get("status") != "passed":
-            reviewer_errors.append(f"{reviewer} Reviewer 未通过")
         findings = review.get("findings", [])
         if not isinstance(findings, list):
             reviewer_errors.append(f"{reviewer} Reviewer 的 findings 必须是数组")
@@ -378,6 +388,7 @@ def _project_reviews(
                 "effective_status": "blocked",
             }
             continue
+        valid_waiver_count = 0
         for finding in findings:
             if not isinstance(finding, dict):
                 reviewer_errors.append(f"{reviewer} Reviewer 存在非对象风险点")
@@ -385,19 +396,57 @@ def _project_reviews(
             normalized, schema_errors = _normalize_review_finding(
                 finding, reviewer, current_round
             )
-            result["findings"].append(normalized)
             finding_id = normalized.get("id") or "未命名风险点"
+            finding_key = f"round-{current_round:03d}/{reviewer}/{finding_id}"
+            raw_blocking = normalized.get("blocking") is True
+            active = normalized.get("status") in ACTIVE_FINDING_STATUSES
+            override = finding_overrides.get(finding_key)
+            valid_waiver = None
+            if (
+                normalized.get("severity") != "P0"
+                and raw_blocking
+                and active
+                and not schema_errors
+                and isinstance(override, dict)
+                and override.get("blocking") is False
+                and isinstance(override.get("reason"), str)
+                and override.get("reason", "").strip()
+                and override.get("source_version") == source.get("version")
+                and override.get("source_sha256") == source.get("sha256")
+                and override.get("review_round") == current_round
+                and override.get("reviewer") == reviewer
+                and override.get("finding_id") == normalized.get("id")
+            ):
+                valid_waiver = override
+                valid_waiver_count += 1
+            effective_blocking = active and (
+                normalized.get("severity") == "P0" or (raw_blocking and valid_waiver is None)
+            )
+            normalized.update(
+                {
+                    "finding_key": finding_key,
+                    "raw_blocking": raw_blocking,
+                    "effective_blocking": effective_blocking,
+                    "can_override": active
+                    and raw_blocking
+                    and normalized.get("severity") != "P0"
+                    and not schema_errors,
+                    "waiver": valid_waiver,
+                }
+            )
+            result["findings"].append(normalized)
             reviewer_errors.extend(
                 f"{reviewer} Reviewer 风险点 {finding_id} {error}"
                 for error in schema_errors
             )
-            if (
-                normalized.get("blocking") is True
-                and normalized.get("status") in ACTIVE_FINDING_STATUSES
-            ):
+            if effective_blocking:
                 reviewer_errors.append(
                     f"{reviewer} Reviewer 风险点 {finding_id} 为阻塞风险且尚未闭合"
                 )
+        if review.get("status") != "passed" and not (
+            review.get("status") == "blocked" and valid_waiver_count and not reviewer_errors
+        ):
+            reviewer_errors.append(f"{reviewer} Reviewer 未通过")
         blockers.extend(reviewer_errors)
         result["reviewers"][reviewer] = {
             **review,

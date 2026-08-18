@@ -207,14 +207,33 @@ function reviewFindingView(finding) {
   return { title, recommendation, evidence, schemaErrors };
 }
 
+function findingSeverityClass(finding) {
+  const severity = String(finding.severity || "").toLowerCase();
+  return ["p0", "p1", "p2", "p3"].includes(severity) ? `severity-${severity}` : "severity-unknown";
+}
+
+function findingBlockingControl(finding, stale) {
+  const active = ["open", "pending", "pending_confirmation"].includes(finding.status);
+  if (!active) return '<span class="finding-state resolved">已闭合</span>';
+  if (finding.severity === "P0") return '<span class="finding-state forced">强制阻塞</span>';
+  if (finding.waiver) {
+    return `<div class="finding-waiver"><span class="finding-state waived">已设为不阻塞</span><small>原因：${escapeHtml(finding.waiver.reason)}</small><button class="finding-action" data-restore-finding="${escapeHtml(finding.finding_key)}" ${stale ? "disabled" : ""}>恢复阻塞</button></div>`;
+  }
+  if (finding.can_override) {
+    return `<button class="finding-action" data-waive-finding="${escapeHtml(finding.finding_key)}" ${stale ? "disabled" : ""}>设为不阻塞</button>`;
+  }
+  return `<span class="finding-state ${finding.effective_blocking ? "forced" : "waived"}">${finding.effective_blocking ? "阻塞" : "不阻塞"}</span>`;
+}
+
 function renderReview(data) {
   const reviews = data.reviews || { reviewers: {}, findings: [], history: [] };
-  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div><span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span></div><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => {
+  return `<section class="panel"><div class="section-title"><div><p class="eyebrow">REVIEW ROUND ${escapeHtml(reviews.round || "-")}</p><h2>稳定性、安全性与可行性评审</h2></div><span class="knowledge-mode">${escapeHtml(data.knowledge_gate?.mode || "missing")} · ${escapeHtml(data.knowledge_gate?.version || "")}</span></div><p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p><div class="review-grid">${Object.entries(reviews.reviewers || {}).map(([name, review]) => {
     const status = review.effective_status || review.status;
     return `<article class="review-track ${escapeHtml(status)}"><strong>${reviewerLabel(name)}</strong><span>${escapeHtml(status)}</span><small>${escapeHtml(review.stage || "")}</small></article>`;
   }).join("") || '<p class="empty">等待三路评审</p>'}</div><div class="risk-list"><h3>风险点</h3>${(reviews.findings || []).map(finding => {
     const view = reviewFindingView(finding);
-    return `<article class="risk ${view.schemaErrors.length ? "schema-invalid" : ""}"><div><strong>${escapeHtml(finding.id)} · ${escapeHtml(view.title)}</strong><span>${escapeHtml(finding.severity || "")}</span></div>${view.schemaErrors.length ? `<p class="schema-warning">硬门禁：${escapeHtml(view.schemaErrors.join("；"))}</p>` : ""}<dl><dt>证据</dt><dd><code>${escapeHtml(view.evidence)}</code></dd><dt>应该怎么修改</dt><dd>${escapeHtml(view.recommendation)}</dd></dl></article>`;
+    const severityClass = findingSeverityClass(finding);
+    return `<article class="risk ${severityClass} ${view.schemaErrors.length ? "schema-invalid" : ""}"><div><strong>${escapeHtml(finding.id)} · ${escapeHtml(view.title)}</strong><span class="severity-badge ${severityClass}">${escapeHtml(finding.severity || "")}</span></div>${view.schemaErrors.length ? `<p class="schema-warning">硬门禁：${escapeHtml(view.schemaErrors.join("；"))}</p>` : ""}<dl><dt>证据</dt><dd><code>${escapeHtml(view.evidence)}</code></dd><dt>应该怎么修改</dt><dd>${escapeHtml(view.recommendation)}</dd></dl><div class="finding-control">${findingBlockingControl(finding, data.stale)}</div></article>`;
   }).join("") || '<p class="empty">当前没有未关闭风险点</p>'}</div><button class="secondary-button" id="request-revision" ${data.stale ? "disabled" : ""}>修改技术文档并重新评审</button></section>`;
 }
 
@@ -268,6 +287,18 @@ function bindInteractions(data, tab) {
     updateControl(data, "advance-next", { expected_task: task.number, commit_type: guessCommitType(task.title), summary: task.title });
   });
   document.querySelector("#request-revision")?.addEventListener("click", () => updateControl(data, "request-source-revision"));
+  document.querySelectorAll("[data-waive-finding]").forEach(button => button.addEventListener("click", () => {
+    const reason = window.prompt("请输入设为不阻塞的原因（必填）", "")?.trim();
+    if (!reason) {
+      feedback = "未设置：设为不阻塞必须填写原因";
+      render(data);
+      return;
+    }
+    updateControl(data, "set-finding-blocking", { finding_key: button.dataset.waiveFinding, blocking: false, reason });
+  }));
+  document.querySelectorAll("[data-restore-finding]").forEach(button => button.addEventListener("click", () => {
+    updateControl(data, "set-finding-blocking", { finding_key: button.dataset.restoreFinding, blocking: true });
+  }));
   document.querySelector("#archive-work")?.addEventListener("click", () => updateControl(data, "archive"));
   document.querySelectorAll("[data-document]").forEach(button => button.addEventListener("click", () => {
     const url = new URL(window.location.href);

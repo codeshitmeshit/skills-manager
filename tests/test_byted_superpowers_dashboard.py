@@ -1011,6 +1011,102 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             "continuous",
         )
 
+    def test_non_p0_finding_can_be_waived_with_required_reason(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [
+            {
+                "id": "SEC-P2-01",
+                "severity": "P2",
+                "blocking": True,
+                "title": "缺少低风险审计字段",
+                "evidence": "technical-design.md:42",
+                "recommendation": "后续补齐审计字段",
+                "status": "open",
+            }
+        ]
+        self.write_json(review_path, review)
+        before = SERVER.build_status(self.root, self.work_id)
+        finding = before["reviews"]["findings"][0]
+
+        after = SERVER.apply_control(
+            self.root,
+            {
+                "action": "set-finding-blocking",
+                "work": self.work_id,
+                "finding_key": finding["finding_key"],
+                "blocking": False,
+                "reason": "风险可监控，接受在下一迭代补齐",
+                "expected_version": before["version"],
+                "idempotency_key": "waive-p2-1",
+            },
+        )
+
+        projected = after["reviews"]["findings"][0]
+        self.assertFalse(projected["effective_blocking"])
+        self.assertEqual(projected["waiver"]["reason"], "风险可监控，接受在下一迭代补齐")
+        self.assertEqual(after["reviews"]["reviewers"]["security"]["effective_status"], "passed")
+        self.assertEqual(after["stages"]["review"]["status"], "passed")
+        control = json.loads((self.work / "control.json").read_text(encoding="utf-8"))
+        self.assertIn(finding["finding_key"], control["finding_overrides"])
+        self.assertEqual(control["finding_override_history"][0]["reason"], "风险可监控，接受在下一迭代补齐")
+
+    def test_non_p0_waiver_requires_non_empty_reason(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [{"id": "SEC-P2-02", "severity": "P2", "blocking": True, "title": "低风险问题", "evidence": "technical-design.md:43", "recommendation": "后续修复", "status": "open"}]
+        self.write_json(review_path, review)
+        before = SERVER.build_status(self.root, self.work_id)
+
+        with self.assertRaisesRegex(SERVER.workflow_state.DashboardError, "原因"):
+            SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": before["reviews"]["findings"][0]["finding_key"], "blocking": False, "reason": "   ", "expected_version": before["version"], "idempotency_key": "waive-empty"})
+
+    def test_p0_finding_cannot_be_waived_even_if_reviewer_marks_it_non_blocking(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [{"id": "SEC-P0-01", "severity": "P0", "blocking": False, "title": "越权风险", "evidence": "technical-design.md:44", "recommendation": "立即修复", "status": "open"}]
+        self.write_json(review_path, review)
+        before = SERVER.build_status(self.root, self.work_id)
+        finding = before["reviews"]["findings"][0]
+        self.assertTrue(finding["effective_blocking"])
+
+        with self.assertRaisesRegex(SERVER.workflow_state.DashboardError, "P0"):
+            SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": finding["finding_key"], "blocking": False, "reason": "接受风险", "expected_version": before["version"], "idempotency_key": "waive-p0"})
+
+    def test_restoring_or_new_round_invalidates_non_p0_waiver(self) -> None:
+        self.write_complete_review_round()
+        review_path = self.work / "reviews" / "round-001-security.json"
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["status"] = "blocked"
+        review["findings"] = [{"id": "SEC-P2-03", "severity": "P2", "blocking": True, "title": "可接受风险", "evidence": "technical-design.md:45", "recommendation": "后续修复", "status": "open"}]
+        self.write_json(review_path, review)
+        before = SERVER.build_status(self.root, self.work_id)
+        finding_key = before["reviews"]["findings"][0]["finding_key"]
+        waived = SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": finding_key, "blocking": False, "reason": "已有监控", "expected_version": before["version"], "idempotency_key": "waive-p2-restore"})
+        restored = SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": finding_key, "blocking": True, "expected_version": waived["version"], "idempotency_key": "restore-p2"})
+        self.assertTrue(restored["reviews"]["findings"][0]["effective_blocking"])
+        self.assertEqual(restored["stages"]["review"]["status"], "blocked")
+
+        SERVER.apply_control(self.root, {"action": "set-finding-blocking", "work": self.work_id, "finding_key": finding_key, "blocking": False, "reason": "当前轮次接受风险", "expected_version": restored["version"], "idempotency_key": "waive-p2-before-round-two"})
+
+        for reviewer in WORKFLOW.REQUIRED_REVIEWERS:
+            self.write_review(reviewer, round_number=2)
+        round_two_path = self.work / "reviews" / "round-002-security.json"
+        round_two = json.loads(round_two_path.read_text(encoding="utf-8"))
+        round_two["status"] = "blocked"
+        round_two["findings"] = review["findings"]
+        self.write_json(round_two_path, round_two)
+        current = SERVER.build_status(self.root, self.work_id)
+        self.assertEqual(current["reviews"]["round"], 2)
+        self.assertIsNone(current["reviews"]["findings"][0]["waiver"])
+        self.assertTrue(current["reviews"]["findings"][0]["effective_blocking"])
+
     def test_control_endpoint_replays_same_idempotency_key_without_conflict(self) -> None:
         server = self.start_server()
         before = self.get_json(server, f"/api/status?work={self.work_id}")
@@ -1384,6 +1480,35 @@ console.log(renderReview(data));
         self.assertIn("目标 FG 权限尚未完成验收", result.stdout)
         self.assertIn("补齐权限和审计证据", result.stdout)
         self.assertIn("未提供（评审证据格式不完整）", result.stdout)
+
+    def test_review_renders_severity_colors_and_non_p0_waiver_controls(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(encoding="utf-8")
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = { querySelector: selector => selector === "#app" ? appNode : null, querySelectorAll: () => [] };
+globalThis.window = { location: new URL("file:///dashboard/index.html?tab=review"), history: { replaceState: () => {} } };
+"""
+            + javascript
+            + """
+const makeFinding = (severity, key, effectiveBlocking, waiver = null) => ({ reviewer: "security", round: 1, id: key, finding_key: key, severity, blocking: true, effective_blocking: effectiveBlocking, can_override: severity !== "P0", waiver, title: `${severity} risk`, evidence: "design:1", recommendation: "fix", status: "open", schema_errors: [] });
+const data = { ...sampleData, reviews: { ...sampleData.reviews, findings: [makeFinding("P0", "p0", true), makeFinding("P1", "p1", true), makeFinding("P2", "p2", false, { reason: "已有监控" }), makeFinding("P3", "p3", true)] } };
+console.log(renderReview(data));
+"""
+        )
+        result = subprocess.run(["node", "-"], input=runner, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for severity in ("p0", "p1", "p2", "p3"):
+            self.assertIn(f"severity-{severity}", result.stdout)
+        self.assertIn("强制阻塞", result.stdout)
+        self.assertIn('data-waive-finding="p1"', result.stdout)
+        self.assertIn("已设为不阻塞", result.stdout)
+        self.assertIn("已有监控", result.stdout)
+        self.assertIn('data-restore-finding="p2"', result.stdout)
+
+        css = (SKILL_DIR / "assets" / "dashboard" / "styles.css").read_text(encoding="utf-8")
+        for severity in ("p0", "p1", "p2", "p3"):
+            self.assertIn(f".severity-{severity}", css)
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(

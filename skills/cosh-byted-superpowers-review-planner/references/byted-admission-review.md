@@ -24,6 +24,8 @@ loaded 模式记录版本、七个必需来源角色、实际文件路径、SHA-
 
 每个 `findings[]` 必须输出统一字段：`id`、`severity`、`blocking`、`title`、`evidence`、`recommendation` 和 `status`。`evidence` 使用非空字符串或每个元素均为非空字符串的数组，必须指向实际代码、技术文档章节、运行数据或知识规则；混合对象、空白元素和全非法数组都是格式错误并阻塞评审门禁。`status` 只能是未闭合的 `open`、`pending`、`pending_confirmation`，或已闭合的 `resolved`、`closed`；`blocking: true` 且未闭合时必须阻塞 Reviewer，即使 Reviewer 顶层状态误报为通过。`assessment`、`rules`、`section` 只能作为补充，不能代替证据。历史产物中的 `problem` 和 `suggestion` 分别兼容映射为 `title` 和 `recommendation`，但任一必填字段缺失时观察板必须显示格式错误并阻塞评审门禁。
 
+未闭合 P0 永远按有效阻塞处理，即使 Reviewer 原始 `blocking` 误写为 `false`，也不能人工豁免。未闭合且原始 `blocking: true` 的 P1、P2、P3 可由用户在观察板选择“设为不阻塞”，但必须填写非空原因；该操作只写入 `control.json` 的独立审计记录，不得修改 Reviewer 原始证据。豁免必须绑定技术文档版本与 SHA、评审轮次、Reviewer 和 finding ID；任一绑定变化即自动失效。用户可随时恢复阻塞。格式错误、过期代码 SHA、缺失 Reviewer 和 P0 不受豁免影响，继续 fail closed。
+
 ## 修改与复评
 
 任一路存在阻塞时展示风险点、证据和建议修改。用户选择技术文档修改后，只修改明确关联章节，生成新版本与 diff；旧结论保留为历史但立即失效。
