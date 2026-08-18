@@ -957,6 +957,11 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
     implementation_blockers: list[str] = []
     if plan_stage["status"] != "passed":
         implementation_blockers.append("Superpowers 计划门禁尚未通过")
+    if task_projection.get("scope_violation_files"):
+        implementation_blockers.append(
+            "存在未授权代码改动："
+            + ", ".join(task_projection["scope_violation_files"])
+        )
     if not task_projection["tasks_total"]:
         implementation_status = "pending"
     elif implementation_blockers:
@@ -970,10 +975,16 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         if task_projection.get("current_task")
         else False
     )
+    if task_projection.get("scope_violation_files"):
+        implementation_fix = "先处理全部未授权改动，再由用户授权下一任务"
+    elif implementation_blockers:
+        implementation_fix = "先闭合规格、定位与计划门禁"
+    else:
+        implementation_fix = ""
     stages["implementation"] = _stage(
         implementation_status,
         implementation_blockers,
-        fix="先闭合规格、定位与计划门禁" if implementation_blockers else "",
+        fix=implementation_fix,
         version=f"{task_projection['tasks_done']}/{task_projection['tasks_total']}",
         can_advance=not implementation_blockers and local_task_ready,
     )

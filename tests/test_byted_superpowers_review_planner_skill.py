@@ -105,6 +105,13 @@ class BytedSuperpowersReviewPlannerSkillTest(unittest.TestCase):
         self.assertIn("日志", standards)
         self.assertIn("不得扩大修改面", self.remote_ut)
 
+    def test_single_mode_requires_explicit_task_authorization_and_full_worktree_scope(self) -> None:
+        self.assertIn("authorized_task", self.skill)
+        self.assertIn("Agent 不得代替用户调用推进控制", self.skill)
+        self.assertIn("staged、unstaged、untracked", self.skill)
+        self.assertIn("scope_violation", self.skill)
+        self.assertIn("awaiting_approval", self.skill)
+
     def test_remote_ut_is_the_only_business_unit_test_gate(self) -> None:
         self.assertIn("bits-remote-ut", self.remote_ut)
         self.assertIn("禁止运行本地业务 UT", self.remote_ut)

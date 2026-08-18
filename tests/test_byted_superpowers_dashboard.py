@@ -785,6 +785,25 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             ["internal/order/unrelated.go"],
         )
 
+    def test_scope_rejects_unrelated_unstaged_and_untracked_files(self) -> None:
+        self.initialize_git()
+        self.stage_file("internal/order/risk.go", "baseline\n")
+        subprocess.run(["git", "commit", "-q", "-m", "feat: 增加风险文件"], cwd=self.root, check=True)
+        (self.root / "internal" / "order" / "risk.go").write_text("unstaged\n", encoding="utf-8")
+        unrelated = self.root / "internal" / "order" / "future_task.go"
+        unrelated.write_text("untracked\n", encoding="utf-8")
+
+        task = {"allowed_files": ["internal/order/risk.go"]}
+
+        self.assertEqual(
+            TASKS.validate_task_scope(self.root, task),
+            ["internal/order/future_task.go"],
+        )
+        self.assertEqual(
+            TASKS.changed_paths(self.root),
+            ["internal/order/future_task.go", "internal/order/risk.go"],
+        )
+
     def test_commit_message_is_conventional_chinese_and_task_scoped(self) -> None:
         message = TASKS.format_task_commit(
             self.work_id, 1, "feat", "增加内部重试判断"
@@ -820,6 +839,27 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
                 commit_type="feat",
                 summary="增加内部重试判断",
             )
+
+    def test_advance_rejects_allowed_but_unstaged_changes(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "staged\n")
+        (self.root / "internal" / "order" / "risk.go").write_text("staged plus unstaged\n", encoding="utf-8")
+        self.write_task_evidence(1)
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "尚未暂存"):
+            TASKS.advance_task(self.root, self.work_id, expected_version=version, expected_task=1, commit_type="feat", summary="增加内部重试判断")
 
     def test_advance_commits_current_scope_then_unlocks_next_task(self) -> None:
         self.initialize_git()
@@ -870,6 +910,201 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertEqual(body.splitlines()[0], f"{self.work_id}-task1")
         self.assertEqual(result["completed_task"], 1)
         self.assertEqual(result["next_task"], 2)
+        projected = TASKS.project_task_status(self.root, self.work_id)
+        self.assertEqual(projected["current_task"]["number"], 2)
+        self.assertEqual(projected["authorized_task"], 2)
+
+    def test_completed_task_without_explicit_authorization_keeps_next_task_locked(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_json(self.work / "evidence" / "commit-task1.json", {"status": "passed", "task": 1, "commit_sha": self.git_head()})
+        self.stage_file("internal/order/metric.go", "unauthorized task 2\n")
+        future = self.root / "internal" / "order" / "future_task.go"
+        future.write_text("unauthorized task 3\n", encoding="utf-8")
+
+        projected = TASKS.project_task_status(self.root, self.work_id)
+
+        self.assertIsNone(projected["current_task"])
+        self.assertEqual(projected["awaiting_approval_task"], 2)
+        self.assertEqual(projected["tasks"][1]["status"], "locked")
+        self.assertEqual(
+            projected["scope_violation_files"],
+            ["internal/order/future_task.go", "internal/order/metric.go"],
+        )
+        self.assertIn("未授权代码改动", " ".join(projected["approval_blockers"]))
+        status = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(status["stages"]["implementation"]["status"], "blocked")
+        self.assertIn(
+            "未授权代码改动",
+            " ".join(status["stages"]["implementation"]["blockers"]),
+        )
+
+    def test_direct_advance_cannot_bypass_missing_task_authorization(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+        self.stage_file("internal/order/metric.go")
+        self.write_task_evidence(2)
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "尚未获得用户推进授权"):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=2,
+                commit_type="feat",
+                summary="增加指标",
+            )
+
+    def test_clean_legacy_state_can_authorize_next_task_without_committing_it(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        head_before = self.git_head()
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": head_before},
+        )
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        result = SERVER.apply_control(
+            self.root,
+            {
+                "action": "authorize-next",
+                "work": self.work_id,
+                "expected_version": version,
+                "expected_task": 2,
+                "idempotency_key": "authorize-task-2",
+            },
+        )
+
+        self.assertEqual(result["authorized_task"], 2)
+        self.assertEqual(result["current_task"]["number"], 2)
+        self.assertEqual(self.git_head(), head_before)
+        projected = TASKS.project_task_status(self.root, self.work_id)
+        self.assertEqual(projected["current_task"]["number"], 2)
+
+    def test_dirty_legacy_state_cannot_authorize_next_task(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+        self.stage_file("internal/order/metric.go", "unauthorized\n")
+        version = WORKFLOW.build_status(self.root, self.work_id)["version"]
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "未授权代码改动"):
+            TASKS.authorize_next_task(
+                self.root,
+                self.work_id,
+                expected_version=version,
+                expected_task=2,
+            )
+
+    def test_task_status_explains_every_disabled_advance_condition(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+
+### Task 2: 增加指标
+**Files:**
+- Create: `internal/order/metric.go`
+**Interfaces:**
+- Consumes: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现指标**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        future = self.root / "internal" / "order" / "metric.go"
+        future.parent.mkdir(parents=True, exist_ok=True)
+        future.write_text("future task\n", encoding="utf-8")
+
+        projected = TASKS.project_task_status(self.root, self.work_id)
+
+        current = projected["current_task"]
+        self.assertFalse(current["can_advance"])
+        self.assertIn("当前任务范围外文件", " ".join(current["advance_blockers"]))
+        self.assertIn("尚未暂存", " ".join(current["advance_blockers"]))
+        self.assertIn("远程 UT", " ".join(current["advance_blockers"]))
+        self.assertIn("CR", " ".join(current["advance_blockers"]))
 
     def test_continuous_mode_rejects_manual_advance(self) -> None:
         self.initialize_git()
@@ -1288,6 +1523,9 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         live = SERVER.build_status(self.root, self.work_id)
         snapshot_path = self.work / "dashboard-state.json"
         self.assertTrue(snapshot_path.is_file())
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        snapshot["can_authorize"] = True
+        self.write_json(snapshot_path, snapshot)
 
         with mock.patch.object(
             SERVER.workflow_state,
@@ -1303,6 +1541,7 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         self.assertTrue(
             all(not stage["can_advance"] for stage in restored["stages"].values())
         )
+        self.assertFalse(restored["can_authorize"])
 
     def test_dashboard_snapshot_does_not_change_workflow_version(self) -> None:
         before = WORKFLOW.build_status(self.root, self.work_id)["version"]
@@ -1647,6 +1886,37 @@ console.log(renderReview(data));
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("无需全量复评", result.stdout)
         self.assertIn("冻结文档 v7", result.stdout)
+
+    def test_tasks_explain_disabled_advance_and_locked_next_task(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(encoding="utf-8")
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = { querySelector: selector => selector === "#app" ? appNode : null, querySelectorAll: () => [] };
+globalThis.window = { location: new URL("file:///dashboard/index.html?tab=tasks"), history: { replaceState: () => {} } };
+"""
+            + javascript
+            + """
+const blocked = { ...sampleData, current_task: { ...sampleData.current_task, can_advance: false, advance_blockers: ["存在当前任务范围外文件：future.go", "当前工作区快照的 CR 尚未通过"] } };
+const locked = { ...sampleData, current_task: null, authorized_task: null, awaiting_approval_task: 2, can_authorize: false, approval_blockers: ["Task 2 尚未获得用户明确授权", "存在未授权代码改动：future.go"], tasks: sampleData.tasks.map(task => task.number === 2 ? { ...task, status: "locked" } : task) };
+const recoverable = { ...locked, can_authorize: true, approval_blockers: ["Task 2 尚未获得用户明确授权"] };
+const stale = { ...recoverable, stale: true };
+console.log(JSON.stringify({ blocked: renderTasks(blocked), locked: renderTasks(locked), recoverable: renderTasks(recoverable), stale: renderTasks(stale) }));
+"""
+        )
+        result = subprocess.run(["node", "-"], input=runner, text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertIn("为什么不能推进", rendered["blocked"])
+        self.assertIn("future.go", rendered["blocked"])
+        self.assertIn("CR 尚未通过", rendered["blocked"])
+        self.assertIn("Task 2 等待用户明确授权", rendered["locked"])
+        self.assertIn("待授权", rendered["locked"])
+        self.assertIn("未授权代码改动", rendered["locked"])
+        self.assertIn("future.go", rendered["locked"])
+        self.assertIn('id="authorize-next"', rendered["recoverable"])
+        self.assertNotIn('id="authorize-next"', rendered["locked"])
+        self.assertNotIn('id="authorize-next"', rendered["stale"])
 
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(

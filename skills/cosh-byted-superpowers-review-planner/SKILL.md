@@ -52,6 +52,8 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 业务 UT 禁止本地运行，只能使用 `bits-remote-ut`。禁止调用 Hammer、`hammer-*` 或 `test-remote-ut`。
 - 全量远程 UT 与最终 CR 必须关联当前 HEAD 并通过，才允许普通 `git push`。不得自动调用 `$cosh-before-push`。
 - 连续推进只能取消人工等待，不能跳过范围校验、远程 UT、CR、提交或任何全局门禁。
+- `mode=single` 时只有后端 `authorized_task` 指向的任务可以产生代码改动。Task 1 默认授权；后续任务必须由用户当轮明确触发“推进下一个任务”后授权。不得从“继续”“完成全部任务”等历史或宽泛表述推断跨任务授权，Agent 不得代替用户调用推进控制。
+- 任务范围校验覆盖 staged、unstaged、untracked 全工作区，而非只检查暂存区。发现未授权任务或范围外文件后立即停止并标记 `scope_violation`；保留改动等待用户决定不等于允许继续其他任务。
 - 同一开发任务不得在 Superpowers 与 Hammer 之间切换。检测到 Hammer 引擎、调用记录、状态或产物时立即阻塞；如需改用 Hammer，先终止并归档当前任务，再建立完全独立的新任务。
 
 ## 主流程
@@ -77,12 +79,12 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 一次只允许开发一个实施子任务：
 
 1. 锁定当前任务允许修改的文件、符号、变量和接口。
-2. 编码并检查实际 diff；范围外修改立即阻塞。
+2. 每次写入前确认当前任务等于 `authorized_task`；写入后检查 staged、unstaged、untracked 完整 diff。范围外修改立即阻塞，不继续写其他任务。
 3. 使用 `bits-remote-ut` 完成当前任务远程 UT。
 4. 远程 UT 通过后完成当前任务 CR；未通过时只修复当前任务并重跑远程 UT 与 CR。
-5. CR 通过后，页面或自然语言才允许“推进下一个任务”。
-6. 推进时检查暂存区，只提交当前任务范围内的文件；无关文件、空提交或 hook 失败都不得解锁下一任务。
-7. 记录 commit SHA 后关闭当前范围并解锁下一任务。
+5. CR 通过后只把当前任务置为可完成；没有用户当轮明确推进动作时，下一任务保持 `locked`。
+6. 用户触发推进时检查全工作区，拒绝范围外、未暂存、空提交或证据过期状态；只提交当前任务范围内的文件。
+7. 记录 commit SHA 和任务授权审计后关闭当前范围，把 `authorized_task` 原子更新为下一任务；否则进入 `awaiting_approval` 并停止。
 
 提交信息固定为：
 

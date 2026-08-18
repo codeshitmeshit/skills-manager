@@ -150,6 +150,7 @@ def _restore_dashboard_state(
         raise workflow_state.DashboardError("观察板持久化快照格式无效")
     restored = copy.deepcopy(snapshot)
     restored["stale"] = True
+    restored["can_authorize"] = False
     restored["projection_error"] = str(error)
     restored["read_at"] = _iso_now()
     for stage in restored.get("stages", {}).values():
@@ -406,6 +407,16 @@ def _apply_control_locked(
             expected_task=task_number,
             commit_type=str(payload.get("commit_type", "feat")),
             summary=str(payload.get("summary", "")),
+        )
+    elif action == "authorize-next":
+        task_number = payload.get("expected_task")
+        if not isinstance(task_number, int):
+            raise workflow_state.DashboardError("expected_task 必须是整数")
+        task_control.authorize_next_task(
+            project_root,
+            work_id,
+            expected_version=expected_version,
+            expected_task=task_number,
         )
     elif action == "request-source-revision":
         _request_source_revision(project_root, work_id, expected_version)

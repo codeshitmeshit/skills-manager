@@ -10,6 +10,7 @@ import logging
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -22,6 +23,11 @@ FILE_LINE = re.compile(r"^- (?:Create|Modify|Test|Delete|Verify only):\s*`([^`]+
 STEP_LINE = re.compile(r"^- \[([ xX])\] \*\*Step \d+:\s*(.+?)\*\*\s*$")
 CHINESE_TEXT = re.compile(r"[\u3400-\u9fff]")
 WORK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+IGNORED_WORKFLOW_PATH_PREFIXES = (
+    ".superpowers/",
+    "docs/superpowers/specs/",
+    "docs/superpowers/plans/",
+)
 
 
 class TaskControlError(RuntimeError):
@@ -150,18 +156,55 @@ def _staged_paths(project_root: Path) -> list[str]:
     return sorted(path for path in result.stdout.split("\0") if path)
 
 
+def _is_workflow_metadata(path: str) -> bool:
+    return path.startswith(IGNORED_WORKFLOW_PATH_PREFIXES)
+
+
+def _unstaged_paths(project_root: Path) -> list[str]:
+    tracked = _run_git(project_root, ["diff", "--name-only", "-z"]).stdout
+    untracked = _run_git(
+        project_root, ["ls-files", "--others", "--exclude-standard", "-z"]
+    ).stdout
+    return sorted(
+        {
+            path
+            for path in (*tracked.split("\0"), *untracked.split("\0"))
+            if path and not _is_workflow_metadata(path)
+        }
+    )
+
+
+def changed_paths(project_root: Path) -> list[str]:
+    return sorted(
+        {
+            path
+            for path in (*_staged_paths(project_root), *_unstaged_paths(project_root))
+            if not _is_workflow_metadata(path)
+        }
+    )
+
+
 def validate_task_scope(project_root: Path, task: Mapping[str, Any]) -> list[str]:
     allowed = {str(path) for path in task.get("allowed_files", [])}
-    return [path for path in _staged_paths(project_root) if path not in allowed]
+    return [path for path in changed_paths(project_root) if path not in allowed]
 
 
 def current_snapshot_sha(project_root: Path) -> str:
     head = _run_git(project_root, ["rev-parse", "HEAD"]).stdout.strip()
-    staged = _run_git(project_root, ["diff", "--cached", "--binary"]).stdout
+    tracked_diff = _run_git(project_root, ["diff", "HEAD", "--binary"]).stdout
     digest = hashlib.sha256()
     digest.update(head.encode("utf-8"))
     digest.update(b"\0")
-    digest.update(staged.encode("utf-8"))
+    digest.update(tracked_diff.encode("utf-8"))
+    for relative in _unstaged_paths(project_root):
+        path = project_root / relative
+        if not path.is_file() or _run_git(
+            project_root, ["ls-files", "--error-unmatch", relative], check=False
+        ).returncode == 0:
+            continue
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -205,6 +248,8 @@ def _work_dir(project_root: Path, work_id: str) -> Path:
 def work_state_version(work_dir: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in work_dir.rglob("*") if item.is_file()):
+        if path.name == "dashboard-state.json":
+            continue
         digest.update(str(path.relative_to(work_dir)).encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()[:16]
@@ -240,19 +285,76 @@ def _evidence_matches_snapshot(
     )
 
 
+def _load_control(work_dir: Path, *, strict: bool = False) -> dict[str, Any]:
+    path = work_dir / "control.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = _read_json(path)
+    except TaskControlError:
+        if strict:
+            raise TaskControlConflict("控制状态损坏，拒绝覆盖现有控制记录")
+        return {}
+    return payload
+
+
+def _authorized_task(
+    work_dir: Path, mode: str, completed: set[int], next_task: int | None
+) -> int | None:
+    if next_task is None:
+        return None
+    if mode == "continuous" or not completed:
+        return next_task
+    authorization = _load_control(work_dir).get("task_authorization", {})
+    if not isinstance(authorization, dict):
+        return None
+    candidate = authorization.get("authorized_task")
+    return candidate if candidate == next_task else None
+
+
 def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
     work_dir = _work_dir(project_root, work_id)
     tasks = parse_superpowers_plan(find_plan(project_root, work_id))
     workflow = _read_json(work_dir / "workflow.json")
     mode = workflow.get("mode", "single")
     completed = _completed_tasks(work_dir)
-    current = next((task for task in tasks if task["number"] not in completed), None)
+    next_incomplete = next(
+        (task for task in tasks if task["number"] not in completed), None
+    )
+    authorized_task = _authorized_task(
+        work_dir,
+        mode,
+        completed,
+        next_incomplete["number"] if next_incomplete else None,
+    )
+    current = (
+        next_incomplete
+        if next_incomplete and next_incomplete["number"] == authorized_task
+        else None
+    )
+    scope_violation_files: list[str] = []
+    approval_blockers: list[str] = []
+    authorization_check_failed = False
+    if next_incomplete is not None and current is None:
+        approval_blockers.append(
+            f"Task {next_incomplete['number']} 尚未获得用户明确授权"
+        )
+        try:
+            scope_violation_files = changed_paths(project_root)
+        except TaskControlError as error:
+            authorization_check_failed = True
+            approval_blockers.append(f"无法检查完整工作区：{error}")
+        if scope_violation_files:
+            approval_blockers.append(
+                "存在未授权代码改动：" + ", ".join(scope_violation_files)
+            )
     snapshot_sha = ""
     staged: list[str] = []
     out_of_scope: list[str] = []
     if current is not None:
         try:
             staged = _staged_paths(project_root)
+            changed = changed_paths(project_root)
             snapshot_sha = current_snapshot_sha(project_root)
             out_of_scope = validate_task_scope(project_root, current)
         except TaskControlError:
@@ -265,21 +367,37 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             task_status = "completed"
         elif current is not None and number == current["number"]:
             task_status = "current"
+        elif next_incomplete is not None and number == next_incomplete["number"]:
+            task_status = "locked"
         else:
             task_status = "waiting"
         projected.append({**task, "status": task_status})
 
     current_projection: dict[str, Any] | None = None
     if current is not None:
+        changed = changed_paths(project_root)
+        unstaged = _unstaged_paths(project_root)
         remote_ut_passed = _evidence_matches_snapshot(
             work_dir, "remote-ut", current["number"], snapshot_sha
         )
         cr_passed = _evidence_matches_snapshot(
             work_dir, "cr", current["number"], snapshot_sha
         )
+        advance_blockers: list[str] = []
+        if not staged:
+            advance_blockers.append("当前任务尚无已暂存改动")
+        if unstaged:
+            advance_blockers.append("仍有尚未暂存的改动：" + ", ".join(unstaged))
+        if out_of_scope:
+            advance_blockers.append("存在当前任务范围外文件：" + ", ".join(out_of_scope))
+        if not remote_ut_passed:
+            advance_blockers.append("当前工作区快照的远程 UT 尚未通过")
+        if not cr_passed:
+            advance_blockers.append("当前工作区快照的 CR 尚未通过")
         can_advance = (
             mode == "single"
             and bool(staged)
+            and not unstaged
             and not out_of_scope
             and remote_ut_passed
             and cr_passed
@@ -289,10 +407,13 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             "status": "current",
             "snapshot_sha": snapshot_sha,
             "staged_files": staged,
+            "changed_files": changed,
+            "unstaged_files": unstaged,
             "out_of_scope_files": out_of_scope,
             "remote_ut_passed": remote_ut_passed,
             "cr_passed": cr_passed,
             "can_advance": can_advance,
+            "advance_blockers": advance_blockers,
         }
     return {
         "plan": str(
@@ -303,6 +424,19 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
         "tasks_total": len(tasks),
         "tasks_done": len(completed),
         "current_task": current_projection,
+        "authorized_task": authorized_task,
+        "awaiting_approval_task": next_incomplete["number"]
+        if next_incomplete is not None and current is None
+        else None,
+        "scope_violation_files": scope_violation_files,
+        "approval_blockers": approval_blockers,
+        "can_authorize": bool(
+            mode == "single"
+            and next_incomplete is not None
+            and current is None
+            and not scope_violation_files
+            and not authorization_check_failed
+        ),
     }
 
 
@@ -318,6 +452,19 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _record_task_authorization(
+    work_dir: Path, *, completed_task: int, authorized_task: int | None
+) -> None:
+    control = _load_control(work_dir, strict=True)
+    control["task_authorization"] = {
+        "completed_task": completed_task,
+        "authorized_task": authorized_task,
+        "state": "authorized" if authorized_task is not None else "complete",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _atomic_write_json(work_dir / "control.json", control)
+
+
 def _validate_task_evidence(
     work_dir: Path, task_number: int, snapshot_sha: str
 ) -> None:
@@ -329,6 +476,50 @@ def _validate_task_evidence(
             raise TaskControlConflict(f"Task {task_number} 的{label}尚未通过")
         if evidence.get("code_sha") != snapshot_sha:
             raise TaskControlConflict(f"Task {task_number} 的{label}证据已过期")
+
+
+def authorize_next_task(
+    project_root: Path,
+    work_id: str,
+    *,
+    expected_version: str,
+    expected_task: int,
+) -> dict[str, Any]:
+    work_dir = _work_dir(project_root, work_id)
+    if expected_version != work_state_version(work_dir):
+        raise TaskControlConflict("开发任务状态已经变化，请刷新后重试")
+    _validate_global_plan_gate(project_root, work_id)
+    workflow = _read_json(work_dir / "workflow.json")
+    if workflow.get("mode", "single") != "single":
+        raise TaskControlConflict("连续推进模式不需要单独授权下一任务")
+    tasks = parse_superpowers_plan(find_plan(project_root, work_id))
+    completed = _completed_tasks(work_dir)
+    if not completed:
+        raise TaskControlConflict("Task 1 已默认授权，无需重复授权")
+    next_task = next(
+        (task for task in tasks if task["number"] not in completed), None
+    )
+    if next_task is None:
+        raise TaskControlConflict("所有实施子任务已经完成")
+    if next_task["number"] != expected_task:
+        raise TaskControlConflict(
+            f"下一实施子任务是 Task {next_task['number']}，不是 Task {expected_task}"
+        )
+    if _authorized_task(work_dir, "single", completed, expected_task) == expected_task:
+        raise TaskControlConflict(f"Task {expected_task} 已经获得授权")
+    dirty = changed_paths(project_root)
+    if dirty:
+        raise TaskControlConflict("存在未授权代码改动：" + ", ".join(dirty))
+    _record_task_authorization(
+        work_dir,
+        completed_task=max(completed),
+        authorized_task=expected_task,
+    )
+    return {
+        "work": work_id,
+        "completed_task": max(completed),
+        "authorized_task": expected_task,
+    }
 
 
 def _validate_global_plan_gate(project_root: Path, work_id: str) -> None:
@@ -376,6 +567,10 @@ def advance_task(
     current = next((task for task in tasks if task["number"] not in completed), None)
     if current is None:
         raise TaskControlConflict("所有实施子任务已经完成")
+    if _authorized_task(work_dir, "single", completed, current["number"]) != current["number"]:
+        raise TaskControlConflict(
+            f"Task {current['number']} 尚未获得用户推进授权"
+        )
     if current["number"] != expected_task:
         raise TaskControlConflict(
             f"当前实施子任务是 Task {current['number']}，不是 Task {expected_task}"
@@ -388,6 +583,11 @@ def advance_task(
     if out_of_scope:
         raise TaskControlConflict(
             "暂存区包含当前任务范围外文件：" + ", ".join(out_of_scope)
+        )
+    unstaged = _unstaged_paths(project_root)
+    if unstaged:
+        raise TaskControlConflict(
+            "工作区仍有尚未暂存的改动：" + ", ".join(unstaged)
         )
     snapshot_sha = current_snapshot_sha(project_root)
     _validate_task_evidence(work_dir, expected_task, snapshot_sha)
@@ -411,6 +611,9 @@ def advance_task(
     )
     next_task = next(
         (task["number"] for task in tasks if task["number"] > expected_task), None
+    )
+    _record_task_authorization(
+        work_dir, completed_task=expected_task, authorized_task=next_task
     )
     LOGGER.info(
         "实施子任务已提交：work=%s task=%s commit=%s next=%s",

@@ -273,7 +273,27 @@ function modeControl(data) {
 }
 
 function renderTasks(data) {
-  return `<section class="panel task-panel">${modeControl(data)}<p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p><div class="task-list">${(data.tasks || []).map(task => { const current = data.current_task?.number === task.number; const advance = current && data.mode !== "continuous" ? `<button id="advance-next" class="advance-button" ${data.current_task.can_advance ? "" : "disabled"}>推进下一个任务</button>` : `<span class="task-state">${task.status === "completed" ? "已完成" : task.status === "current" ? "当前任务" : "等待中"}</span>`; return `<article class="task-row ${escapeHtml(task.status)}"><span class="task-index">TASK ${task.number}</span><div><strong>${escapeHtml(task.title)}</strong><small>${(task.allowed_files || []).map(escapeHtml).join(" · ")}</small></div>${advance}</article>`; }).join("") || '<p class="empty">尚未生成实施子任务</p>'}</div></section>`;
+  const approval = data.awaiting_approval_task
+    ? `<div class="task-approval-waiting"><strong>Task ${escapeHtml(data.awaiting_approval_task)} 等待用户明确授权</strong>${data.approval_blockers?.length ? `<ul>${data.approval_blockers.map(blocker => `<li>${escapeHtml(blocker)}</li>`).join("")}</ul>` : ""}${data.can_authorize && !data.stale ? `<button id="authorize-next" class="advance-button">授权 Task ${escapeHtml(data.awaiting_approval_task)}</button>` : ""}</div>`
+    : "";
+  const rows = (data.tasks || []).map(task => {
+    const current = data.current_task?.number === task.number;
+    const stateLabel = task.status === "completed"
+      ? "已完成"
+      : task.status === "current"
+        ? "当前任务"
+        : task.status === "locked"
+          ? "待授权"
+          : "等待中";
+    const advance = current && data.mode !== "continuous"
+      ? `<button id="advance-next" class="advance-button" ${data.current_task.can_advance ? "" : "disabled"}>推进下一个任务</button>`
+      : `<span class="task-state">${stateLabel}</span>`;
+    const blockers = current && !data.current_task.can_advance && data.current_task.advance_blockers?.length
+      ? `<div class="advance-blockers"><strong>为什么不能推进</strong><ul>${data.current_task.advance_blockers.map(blocker => `<li>${escapeHtml(blocker)}</li>`).join("")}</ul></div>`
+      : "";
+    return `<article class="task-row ${escapeHtml(task.status)}"><span class="task-index">TASK ${task.number}</span><div><strong>${escapeHtml(task.title)}</strong><small>${(task.allowed_files || []).map(escapeHtml).join(" · ")}</small></div>${advance}${blockers}</article>`;
+  }).join("") || '<p class="empty">尚未生成实施子任务</p>';
+  return `<section class="panel task-panel">${modeControl(data)}<p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p>${approval}<div class="task-list">${rows}</div></section>`;
 }
 
 function render(data) {
@@ -299,6 +319,9 @@ function bindInteractions(data, tab) {
   document.querySelector("#advance-next")?.addEventListener("click", () => {
     const task = data.current_task;
     updateControl(data, "advance-next", { expected_task: task.number, commit_type: guessCommitType(task.title), summary: task.title });
+  });
+  document.querySelector("#authorize-next")?.addEventListener("click", () => {
+    updateControl(data, "authorize-next", { expected_task: data.awaiting_approval_task });
   });
   document.querySelector("#request-revision")?.addEventListener("click", () => updateControl(data, "request-source-revision"));
   document.querySelectorAll("[data-waive-finding]").forEach(button => button.addEventListener("click", () => {
