@@ -868,12 +868,22 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         with mock.patch.object(
             sys,
             "argv",
-            ["serve_superpowers_dashboard.py", "--open", "--port", "0"],
+            ["serve_superpowers_dashboard.py", "--open", "--port", "57171"],
         ):
             args = SERVER.parse_args()
 
         self.assertTrue(args.open_browser)
-        self.assertEqual(args.port, 0)
+        self.assertEqual(args.port, 57171)
+
+    def test_dashboard_cli_rejects_non_fixed_port(self) -> None:
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["serve_superpowers_dashboard.py", "--port", "49999"],
+        ):
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    SERVER.parse_args()
 
     def test_dashboard_cli_uses_fixed_port_by_default(self) -> None:
         with mock.patch.object(sys, "argv", ["serve_superpowers_dashboard.py"]):
@@ -1059,6 +1069,32 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
         after_signature, _ = SERVER.event_payload(self.root, self.work_id)
         self.assertEqual(before_signature, after_signature)
 
+    def test_dashboard_persists_last_valid_status_and_restores_it_as_stale(self) -> None:
+        live = SERVER.build_status(self.root, self.work_id)
+        snapshot_path = self.work / "dashboard-state.json"
+        self.assertTrue(snapshot_path.is_file())
+
+        with mock.patch.object(
+            SERVER.workflow_state,
+            "build_status",
+            side_effect=WORKFLOW.DashboardError("投影暂时不可用"),
+        ):
+            restored = SERVER.build_status(self.root, self.work_id)
+
+        self.assertEqual(restored["work"], live["work"])
+        self.assertEqual(restored["version"], live["version"])
+        self.assertTrue(restored["stale"])
+        self.assertEqual(restored["projection_error"], "投影暂时不可用")
+        self.assertTrue(
+            all(not stage["can_advance"] for stage in restored["stages"].values())
+        )
+
+    def test_dashboard_snapshot_does_not_change_workflow_version(self) -> None:
+        before = WORKFLOW.build_status(self.root, self.work_id)["version"]
+        SERVER.build_status(self.root, self.work_id)
+        after = WORKFLOW.build_status(self.root, self.work_id)["version"]
+        self.assertEqual(after, before)
+
     def test_static_dashboard_uses_development_work_and_task_navigation(self) -> None:
         javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
             encoding="utf-8"
@@ -1158,6 +1194,153 @@ console.log(renderOverview(data));
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Reviewer 2 / 3", result.stdout)
         self.assertNotIn("Task 0 / 0", result.stdout)
+
+    def test_passed_stage_detail_has_explicit_empty_state(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview"),
+  history: { replaceState: () => {} },
+};
+"""
+            + javascript
+            + """
+console.log(renderStageDetail("source", {
+  status: "passed",
+  blockers: [],
+  fix: "",
+  version: 40,
+  updated_at: "2026-08-18T12:00:00+08:00",
+  can_advance: true,
+}));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("无阻塞", result.stdout)
+        self.assertIn("无需修复", result.stdout)
+
+    def test_overview_selection_is_persisted_in_url(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+let stageClick = null;
+const replacedUrls = [];
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview&stage=source"),
+  history: { replaceState: (_state, _title, url) => {
+    replacedUrls.push(String(url));
+    window.location = new URL(url);
+  } },
+};
+"""
+            + javascript
+            + """
+document.querySelectorAll = selector => selector === "[data-overview-stage]" ? [{
+  dataset: { overviewStage: "review" },
+  addEventListener: (_event, handler) => { stageClick = handler; },
+}] : [];
+replacedUrls.length = 0;
+render(sampleData);
+stageClick();
+console.log(JSON.stringify({ selected: selectedOverviewStage, replacedUrls }));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertEqual(rendered["selected"], "review")
+        self.assertTrue(rendered["replacedUrls"])
+        self.assertIn("stage=review", rendered["replacedUrls"][-1])
+
+    def test_sse_read_error_keeps_last_valid_dashboard_visible(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+let eventSource = null;
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview"),
+  history: { replaceState: () => {} },
+};
+globalThis.EventSource = class {
+  constructor() { this.listeners = {}; eventSource = this; }
+  addEventListener(name, handler) { this.listeners[name] = handler; }
+};
+"""
+            + javascript
+            + """
+connectLive(sampleData.work);
+eventSource.listeners["read-error"]({ data: JSON.stringify({ error: "投影暂时不可用" }) });
+console.log(appNode.innerHTML);
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("optimize-order-risk-check", result.stdout)
+        self.assertIn("投影暂时不可用", result.stdout)
+
+    def test_stale_snapshot_disables_dashboard_controls(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = {
+  querySelector: selector => selector === "#app" ? appNode : null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {
+  location: new URL("file:///dashboard/index.html?tab=overview"),
+  history: { replaceState: () => {} },
+};
+"""
+            + javascript
+            + """
+const stale = { ...sampleData, stale: true };
+console.log(JSON.stringify({
+  tasks: renderTasks(stale),
+  review: renderReview(stale),
+  validation: renderValidation(stale),
+}));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertIn('data-mode="single" disabled', rendered["tasks"])
+        self.assertIn('id="request-revision" disabled', rendered["review"])
+        self.assertIn('id="archive-work" disabled', rendered["validation"])
 
     def test_review_renders_legacy_fields_and_marks_missing_evidence(self) -> None:
         javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(

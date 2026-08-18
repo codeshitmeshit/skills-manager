@@ -4,6 +4,7 @@ let availableWorks = [];
 let connectionState = "live";
 let feedback = "";
 let selectedOverviewStage = null;
+let projectionError = "";
 
 const stageLabels = {
   source: "技术文档",
@@ -130,8 +131,10 @@ function renderNavigation(data) {
 }
 
 function renderHeader(data) {
-  const connection = data.sample ? "模板示例" : connectionState === "live" ? "实时连接" : "正在重连";
-  return `<header class="top"><div>${renderWorkSwitcher(data)}<p class="eyebrow">BYTEDANCE · SUPERPOWERS</p><h1>${escapeHtml(data.work)}</h1></div><div class="connection ${connectionState}"><strong>${connection}</strong><span>源版本 v${escapeHtml(data.source?.version || "-")}</span><span>${escapeHtml(data.read_at || "")}</span></div></header>${renderNavigation(data)}`;
+  const stale = data.stale === true || connectionState === "stale";
+  const connection = data.sample ? "模板示例" : stale ? "持久化快照" : connectionState === "live" ? "实时连接" : "正在重连";
+  const issue = data.projection_error || projectionError;
+  return `<header class="top"><div>${renderWorkSwitcher(data)}<p class="eyebrow">BYTEDANCE · SUPERPOWERS</p><h1>${escapeHtml(data.work)}</h1></div><div class="connection ${stale ? "stale" : connectionState}"><strong>${connection}</strong><span>源版本 v${escapeHtml(data.source?.version || "-")}</span><span>${escapeHtml(data.read_at || "")}</span></div></header>${renderNavigation(data)}${issue ? `<p class="projection-warning" role="status">实时数据暂不可用，正在展示最后有效快照：${escapeHtml(issue)}</p>` : ""}`;
 }
 
 function stageCard(name, stage) {
@@ -146,6 +149,8 @@ function normalizedStageStatus(stage) {
 
 function defaultOverviewStage(stages) {
   if (!stages.length) return null;
+  const requested = new URL(window.location.href).searchParams.get("stage");
+  if (requested && stages.some(([name]) => name === requested)) selectedOverviewStage = requested;
   if (selectedOverviewStage && stages.some(([name]) => name === selectedOverviewStage)) return selectedOverviewStage;
   const active = stages.find(([, stage]) => stage?.status === "running" || stage?.status === "blocked");
   const incomplete = stages.find(([, stage]) => stage?.status !== "passed");
@@ -174,7 +179,9 @@ function renderStageDetail(name, stage) {
   const meta = stageStatusMeta[status];
   const rawStatus = stage.status || "pending";
   const canAdvance = stage.can_advance === true ? "是" : stage.can_advance === false ? "否" : "未记录";
-  return `<aside class="stage-detail panel ${escapeHtml(status)}"><div class="stage-detail-heading"><div><p class="eyebrow">阶段详情</p><h2>${escapeHtml(stageLabels[name] || name)}</h2></div><span class="stage-detail-status"><i aria-hidden="true">${meta.icon}</i>${escapeHtml(rawStatus)}</span></div><dl>${stageDetailRow("阻塞原因", stage.blockers?.[0], "blocker")}${stageDetailRow("修复建议", stage.fix, "fix")}${stageDetailRow("证据版本", stage.version)}${stageDetailRow("更新时间", stage.updated_at)}${stageDetailRow("允许继续", canAdvance)}</dl></aside>`;
+  const blocker = stage.blockers?.[0] || (status === "passed" ? "无阻塞" : "未记录");
+  const fix = stage.fix || (status === "passed" ? "无需修复" : "未记录");
+  return `<aside class="stage-detail panel ${escapeHtml(status)}"><div class="stage-detail-heading"><div><p class="eyebrow">阶段详情</p><h2>${escapeHtml(stageLabels[name] || name)}</h2></div><span class="stage-detail-status"><i aria-hidden="true">${meta.icon}</i>${escapeHtml(rawStatus)}</span></div><dl>${stageDetailRow("阻塞原因", blocker, "blocker")}${stageDetailRow("修复建议", fix, "fix")}${stageDetailRow("证据版本", stage.version)}${stageDetailRow("更新时间", stage.updated_at)}${stageDetailRow("允许继续", canAdvance)}</dl></aside>`;
 }
 
 function renderOverview(data) {
@@ -208,7 +215,7 @@ function renderReview(data) {
   }).join("") || '<p class="empty">等待三路评审</p>'}</div><div class="risk-list"><h3>风险点</h3>${(reviews.findings || []).map(finding => {
     const view = reviewFindingView(finding);
     return `<article class="risk ${view.schemaErrors.length ? "schema-invalid" : ""}"><div><strong>${escapeHtml(finding.id)} · ${escapeHtml(view.title)}</strong><span>${escapeHtml(finding.severity || "")}</span></div>${view.schemaErrors.length ? `<p class="schema-warning">硬门禁：${escapeHtml(view.schemaErrors.join("；"))}</p>` : ""}<dl><dt>证据</dt><dd><code>${escapeHtml(view.evidence)}</code></dd><dt>应该怎么修改</dt><dd>${escapeHtml(view.recommendation)}</dd></dl></article>`;
-  }).join("") || '<p class="empty">当前没有未关闭风险点</p>'}</div><button class="secondary-button" id="request-revision">修改技术文档并重新评审</button></section>`;
+  }).join("") || '<p class="empty">当前没有未关闭风险点</p>'}</div><button class="secondary-button" id="request-revision" ${data.stale ? "disabled" : ""}>修改技术文档并重新评审</button></section>`;
 }
 
 function documentsFor(data, category) {
@@ -224,11 +231,12 @@ function renderDocumentTab(data, category) {
 
 function renderValidation(data) {
   const items = ["remote_ut", "final_review", "push", "archive"];
-  return `<section class="panel"><div class="section-title"><h2>验证与交付</h2><button class="secondary-button" id="archive-work">手动归档</button></div><div class="validation-list">${items.map(name => stageCard(name, data.stages?.[name])).join("")}</div></section>`;
+  return `<section class="panel"><div class="section-title"><h2>验证与交付</h2><button class="secondary-button" id="archive-work" ${data.stale ? "disabled" : ""}>手动归档</button></div><div class="validation-list">${items.map(name => stageCard(name, data.stages?.[name])).join("")}</div></section>`;
 }
 
 function modeControl(data) {
-  return `<div class="mode-control"><div><p class="eyebrow">推进方式</p><strong>${data.mode === "continuous" ? "连续推进" : "逐一任务校验"}</strong></div><div class="segmented"><button data-mode="single" class="${data.mode === "single" ? "active" : ""}">逐一任务校验</button><button data-mode="continuous" class="${data.mode === "continuous" ? "active" : ""}">连续推进</button></div></div>`;
+  const disabled = data.stale ? "disabled" : "";
+  return `<div class="mode-control"><div><p class="eyebrow">推进方式</p><strong>${data.mode === "continuous" ? "连续推进" : "逐一任务校验"}</strong></div><div class="segmented"><button data-mode="single" ${disabled} class="${data.mode === "single" ? "active" : ""}">逐一任务校验</button><button data-mode="continuous" ${disabled} class="${data.mode === "continuous" ? "active" : ""}">连续推进</button></div></div>`;
 }
 
 function renderTasks(data) {
@@ -269,6 +277,9 @@ function bindInteractions(data, tab) {
   }));
   if (tab === "overview") document.querySelectorAll("[data-overview-stage]").forEach(button => button.addEventListener("click", () => {
     selectedOverviewStage = button.dataset.overviewStage;
+    const url = new URL(window.location.href);
+    url.searchParams.set("stage", selectedOverviewStage);
+    window.history.replaceState(null, "", url.href);
     render(data);
   }));
   if (["source", "spec", "plan"].includes(tab)) loadSelectedDocument(data, tab);
@@ -287,6 +298,11 @@ function idempotencyKey() {
 }
 
 async function updateControl(data, action, extra = {}) {
+  if (data.stale) {
+    feedback = "实时证据不可用，已禁止修改状态";
+    render(data);
+    return;
+  }
   if (data.sample) {
     feedback = "模板模式不会写入仓库";
     render(data);
@@ -344,9 +360,19 @@ async function fetchWorks() {
 
 function connectLive(work) {
   const source = new EventSource(apiUrl("/events", { work }));
-  source.addEventListener("open", () => { connectionState = "live"; if (latestData) render(latestData); });
-  source.addEventListener("status", event => { connectionState = "live"; render(JSON.parse(event.data)); });
-  source.addEventListener("read-error", event => renderError(JSON.parse(event.data).error));
+  source.addEventListener("open", () => { if (!latestData?.stale) connectionState = "live"; if (latestData) render(latestData); });
+  source.addEventListener("status", event => {
+    const data = JSON.parse(event.data);
+    projectionError = data.projection_error || "";
+    connectionState = data.stale ? "stale" : "live";
+    render(data);
+  });
+  source.addEventListener("read-error", event => {
+    projectionError = JSON.parse(event.data).error;
+    connectionState = "stale";
+    if (latestData) render({ ...latestData, stale: true, projection_error: projectionError });
+    else renderError(projectionError);
+  });
   source.addEventListener("error", () => { connectionState = "reconnecting"; if (latestData) render(latestData); });
 }
 

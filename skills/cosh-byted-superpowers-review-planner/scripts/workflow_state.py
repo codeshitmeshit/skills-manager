@@ -34,6 +34,7 @@ VALID_STATUSES = {"pending", "running", "blocked", "passed"}
 ACTIVE_FINDING_STATUSES = {"open", "pending", "pending_confirmation"}
 CLOSED_FINDING_STATUSES = {"resolved", "closed"}
 VALID_FINDING_STATUSES = ACTIVE_FINDING_STATUSES | CLOSED_FINDING_STATUSES
+DASHBOARD_STATE_FILENAME = "dashboard-state.json"
 
 
 class DashboardError(RuntimeError):
@@ -445,6 +446,8 @@ def _project_review_closure(
 def _state_version(work_dir: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in work_dir.rglob("*") if item.is_file()):
+        if path.name == DASHBOARD_STATE_FILENAME:
+            continue
         digest.update(str(path.relative_to(work_dir)).encode("utf-8"))
         try:
             digest.update(path.read_bytes())

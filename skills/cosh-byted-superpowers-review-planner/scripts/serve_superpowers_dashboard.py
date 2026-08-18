@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import logging
@@ -35,6 +36,8 @@ LOGGER = logging.getLogger("byted-superpowers-dashboard")
 ASSET_DIR = SCRIPT_DIR.parent / "assets" / "dashboard"
 MAX_REQUEST_BYTES = 1024 * 1024
 CONTROL_LOCK = threading.Lock()
+FIXED_PORT = 57171
+DASHBOARD_STATE_FILENAME = "dashboard-state.json"
 
 
 def _json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -110,11 +113,73 @@ def _documents(project_root: Path, work_id: str) -> list[dict[str, str]]:
     return result
 
 
+def _dashboard_state_path(project_root: Path, work_id: str) -> Path:
+    return workflow_state.resolve_work(project_root, work_id) / DASHBOARD_STATE_FILENAME
+
+
+def _persist_dashboard_state(project_root: Path, status: Mapping[str, Any]) -> None:
+    work_id = str(status.get("work", ""))
+    if not work_id:
+        return
+    snapshot = {
+        key: value
+        for key, value in status.items()
+        if key not in {"read_at", "projection_error"}
+    }
+    snapshot["stale"] = False
+    path = _dashboard_state_path(project_root, work_id)
+    try:
+        if path.is_file() and json.loads(path.read_text(encoding="utf-8")) == snapshot:
+            return
+    except (OSError, json.JSONDecodeError):
+        pass
+    try:
+        _atomic_write_json(path, snapshot)
+    except OSError as error:
+        LOGGER.warning("观察板状态快照写入失败：work=%s error=%s", work_id, error)
+
+
+def _restore_dashboard_state(
+    project_root: Path, work_id: str | None, error: Exception
+) -> dict[str, Any]:
+    work_dir = workflow_state.resolve_work(project_root, work_id)
+    snapshot = json.loads(
+        (work_dir / DASHBOARD_STATE_FILENAME).read_text(encoding="utf-8")
+    )
+    if not isinstance(snapshot, dict):
+        raise workflow_state.DashboardError("观察板持久化快照格式无效")
+    restored = copy.deepcopy(snapshot)
+    restored["stale"] = True
+    restored["projection_error"] = str(error)
+    restored["read_at"] = _iso_now()
+    for stage in restored.get("stages", {}).values():
+        if isinstance(stage, dict):
+            stage["can_advance"] = False
+    current_task = restored.get("current_task")
+    if isinstance(current_task, dict):
+        current_task["can_advance"] = False
+    return restored
+
+
 def build_status(project_root: Path, work_id: str | None) -> dict[str, Any]:
-    status = workflow_state.build_status(project_root, work_id)
-    status["documents"] = _documents(project_root, status["work"])
-    status["read_at"] = _iso_now()
-    return status
+    try:
+        status = workflow_state.build_status(project_root, work_id)
+        status["documents"] = _documents(project_root, status["work"])
+        status["stale"] = False
+        status["read_at"] = _iso_now()
+        _persist_dashboard_state(project_root, status)
+        return status
+    except Exception as error:
+        try:
+            restored = _restore_dashboard_state(project_root, work_id, error)
+        except Exception:
+            raise error
+        LOGGER.warning(
+            "观察板实时投影失败，恢复最后有效快照：work=%s error=%s",
+            restored.get("work"),
+            error,
+        )
+        return restored
 
 
 def event_payload(project_root: Path, work_id: str | None) -> tuple[str, dict[str, Any]]:
@@ -454,7 +519,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--work")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=57171)
+    parser.add_argument("--port", type=int, choices=(FIXED_PORT,), default=FIXED_PORT)
     parser.add_argument(
         "--open",
         action="store_true",

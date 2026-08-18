@@ -31,7 +31,9 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 ```
 
 - `<skill-root>` 是当前已加载 `SKILL.md` 所在目录；启动前先解析为绝对路径，不能依赖目标仓库的当前工作目录。
-- 必须组合使用 `--port 57171 --open`；`--open` 调用系统默认浏览器。端口冲突时必须失败，不得降级到其他端口。保持服务贯穿后续阶段，并向用户输出服务实际绑定的最终 URL。
+- 本地仓库必须组合使用 `--port 57171 --open`；`--open` 调用系统默认浏览器。脚本拒绝 `57171` 以外的端口，冲突时必须失败，不得降级。
+- 目标仓库位于 CloudDev 等远端环境时，远端服务固定监听 `127.0.0.1:57171`，本机使用 `ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:57171:127.0.0.1:57171 <remote-host>` 建立一对一隧道；隧道成功后在本机系统默认浏览器打开 `http://127.0.0.1:57171/?work=<work-id>`。禁止为任一端选择随机端口，也不能在远端用 `--open` 代替本机打开。
+- 保持服务和远端隧道贯穿后续阶段，并向用户输出最终可访问的固定 URL。
 - 自动打开失败不阻塞研发流程；保留服务并提供最终 URL 供手动打开。
 - 用户仅解释、测试或维护本 skill 及其资源时，不启动观察板，避免递归触发。
 
@@ -96,6 +98,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 ## 状态与观察板
 
 - 使用 `.superpowers/byted-work/<work-id>/` 保存字节门禁和证据旁路状态。
+- 使用 `.superpowers/byted-work/<work-id>/dashboard-state.json` 原子保存最后有效观察板快照；该文件不属于门禁证据，也不参与状态版本计算。实时投影失败或服务重启恢复时只用于展示，并将所有推进动作禁用到真实证据重新可读。
 - 使用 `docs/superpowers/specs/`、`docs/superpowers/plans/` 与 `.superpowers/sdd/` 读取原生产物。
 - 入口阶段使用 [`scripts/serve_superpowers_dashboard.py`](scripts/serve_superpowers_dashboard.py) 自动启动并打开系统默认浏览器；用户关闭页面时仍按同一流程执行。
 - 每次状态或证据变化后确认 SSE 已刷新；页面不一致时修复投影，不手工伪造状态。
