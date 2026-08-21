@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import pathlib
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -95,6 +96,39 @@ class CoshHammerStateTest(unittest.TestCase):
             if path.is_file()
         }
 
+    def create_linked_worktree(self, name: str) -> pathlib.Path:
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.project), "config", "user.name", "Cosh Test"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.project), "config", "user.email", "cosh@example.com"],
+            check=True,
+        )
+        (self.project / "tracked.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(self.project), "add", "tracked.txt"], check=True
+        )
+        subprocess.run(
+            ["git", "-C", str(self.project), "commit", "-qm", "base"], check=True
+        )
+        target = pathlib.Path(self.temp.name) / name
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "worktree",
+                "add",
+                "-qb",
+                name,
+                str(target),
+            ],
+            check=True,
+        )
+        return target
+
     def test_initialize_launch_requires_hammer_and_writes_only_plugin_state(self) -> None:
         before = self.hammer_snapshot()
         launch = self.state.initialize_launch(
@@ -107,7 +141,12 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(before, self.hammer_snapshot())
         self.assertEqual(launch["work"], "order-risk")
         self.assertEqual(launch["hammer"]["required"], True)
+        self.assertEqual(
+            launch["worktree"], {"policy": "skip", "source": "user"}
+        )
         self.assertIn("$hammer", launch["hammer_prompt"])
+        self.assertIn("- decision: skip", launch["hammer_prompt"])
+        self.assertIn("- source: user", launch["hammer_prompt"])
         self.assertIn(
             "Use $cosh-hammer in coding mode for this Hammer parent task.",
             launch["hammer_prompt"],
@@ -139,6 +178,53 @@ class CoshHammerStateTest(unittest.TestCase):
                 source={"kind": "text", "value": "x"},
                 hammer_root=wrong,
             )
+
+    def test_initialize_launch_only_opens_worktree_when_explicitly_requested(self) -> None:
+        launch = self.state.initialize_launch(
+            self.project,
+            work_id="isolated-order-risk",
+            refined_requirement="在隔离 worktree 中限制重复下单。",
+            source={"kind": "text", "value": "明确使用 worktree"},
+            hammer_root=self.hammer_root,
+            worktree_policy="open",
+        )
+        self.assertEqual(
+            launch["worktree"], {"policy": "open", "source": "user"}
+        )
+        self.assertIn("- decision: open", launch["hammer_prompt"])
+        self.assertIn("- source: user", launch["hammer_prompt"])
+        self.assertNotIn("- decision: skip", launch["hammer_prompt"])
+
+        with self.assertRaises(self.state.CoshHammerError):
+            self.state.initialize_launch(
+                self.project,
+                work_id="invalid-worktree-policy",
+                refined_requirement="x",
+                source={"kind": "text", "value": "x"},
+                hammer_root=self.hammer_root,
+                worktree_policy="auto",
+            )
+
+    def test_init_cli_defaults_to_skip_and_accepts_explicit_open(self) -> None:
+        parser = self.state.build_parser()
+        common = [
+            "init",
+            "--project",
+            str(self.project),
+            "--work",
+            "order-risk",
+            "--requirement",
+            "限制重复下单",
+            "--source",
+            "限制重复下单",
+            "--hammer-root",
+            str(self.hammer_root),
+        ]
+        self.assertEqual(parser.parse_args(common).worktree, "skip")
+        self.assertEqual(
+            parser.parse_args([*common, "--worktree", "open"]).worktree,
+            "open",
+        )
 
     def test_descendant_symlink_cannot_redirect_plugin_writes_into_hammer(self) -> None:
         work = self.project / ".cosh" / "hammer-plugin" / "redirected"
@@ -177,6 +263,102 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(stages["change_surface"], "running")
         self.assertIn("hammer_validation", stages)
         self.assertFalse(status["stale"])
+
+    def test_projection_stays_on_original_project_without_migration_event(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="no-migration",
+            refined_requirement="默认不使用工作树。",
+            source={"kind": "text", "value": "默认不使用工作树"},
+            hammer_root=self.hammer_root,
+        )
+        target = self.create_linked_worktree("unused-worktree")
+        execute = target / ".hammer" / "execute"
+        execute.mkdir(parents=True)
+        (execute / "session.md").write_text(
+            "# Execute\n\n- next_action: run-step-5\n- blocker: none\n",
+            encoding="utf-8",
+        )
+
+        status = self.state.build_status(self.project, "no-migration")
+
+        self.assertEqual(status["hammer"]["stage"], "plan")
+        self.assertEqual(status["active_project"], str(self.project.resolve()))
+        self.assertFalse(status["workspace"]["migrated"])
+
+    def test_projection_follows_valid_hammer_worktree_migration_event(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="migrated-work",
+            refined_requirement="显式使用工作树。",
+            source={"kind": "text", "value": "使用工作树"},
+            hammer_root=self.hammer_root,
+            worktree_policy="open",
+        )
+        target = self.create_linked_worktree("active-worktree")
+        target_hammer = target / ".hammer"
+        target_design = target_hammer / "design"
+        target_design.mkdir(parents=True)
+        (target_design / "session.md").write_text(
+            "# Design\n\n## 审计日志\n\n"
+            f"- 2026-08-21 10:00:01 +0800 | workspace.worktree "
+            f"decision=created path={target} tool=git\n",
+            encoding="utf-8",
+        )
+        execute = target_hammer / "execute"
+        execute.mkdir(parents=True)
+        (execute / "session.md").write_text(
+            "# Execute\n\n"
+            "- current_task_ref: TASK-2\n"
+            "- next_action: run-step-5\n"
+            "- blocker: none\n",
+            encoding="utf-8",
+        )
+        design = self.project / ".hammer" / "design"
+        design.mkdir(exist_ok=True)
+        (design / "session.md").write_text(
+            "# Design\n\n## 审计日志\n\n"
+            f"- 2026-08-21 10:00:00 +0800 | workspace.worktree "
+            f"decision=migrated_away path={target}\n",
+            encoding="utf-8",
+        )
+
+        status = self.state.build_status(self.project, "migrated-work")
+
+        self.assertEqual(status["hammer"]["stage"], "validation")
+        self.assertEqual(status["hammer"]["current_task"], "TASK-2")
+        self.assertEqual(status["active_project"], str(target.resolve()))
+        self.assertTrue(status["workspace"]["migrated"])
+        self.assertEqual(status["workspace"]["migration_chain"], [str(target.resolve())])
+
+    def test_projection_fails_closed_for_unregistered_migration_target(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="invalid-migration",
+            refined_requirement="观察迁移。",
+            source={"kind": "text", "value": "观察迁移"},
+            hammer_root=self.hammer_root,
+        )
+        self.state.build_status(self.project, "invalid-migration")
+        target = pathlib.Path(self.temp.name) / "not-a-worktree"
+        (target / ".hammer" / "design").mkdir(parents=True)
+        (target / ".hammer" / "design" / "session.md").write_text(
+            "# fake\n", encoding="utf-8"
+        )
+        design = self.project / ".hammer" / "design"
+        design.mkdir(exist_ok=True)
+        (design / "session.md").write_text(
+            "# Design\n\n## 审计日志\n\n"
+            f"- 2026-08-21 10:00:00 +0800 | workspace.worktree "
+            f"decision=migrated_away path={target}\n",
+            encoding="utf-8",
+        )
+
+        status = self.state.build_status(self.project, "invalid-migration")
+
+        self.assertTrue(status["stale"])
+        self.assertFalse(status["controls_enabled"])
+        self.assertIn("不是已注册的 Git worktree", status["projection_error"])
 
     def test_real_hammer_execute_markdown_projects_validation_state(self) -> None:
         self.state.initialize_launch(

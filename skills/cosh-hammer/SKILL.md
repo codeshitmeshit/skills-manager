@@ -28,9 +28,9 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 
 1. 只澄清产品目标、范围、约束和验收条件，不提前替 Hammer 作技术设计。
 2. 检查 `$hammer` 可用；缺失时停止，不得降级为独立研发流程。
-3. 用 `scripts/cosh_hammer_state.py init` 固化需求和结构化 Hammer prompt。
+3. 用 `scripts/cosh_hammer_state.py init` 固化需求和结构化 Hammer prompt。默认传入 `--worktree skip`；只有用户在本次请求中明确要求使用 worktree 时才传入 `--worktree open`，不得根据实现复杂度自行开启。
 4. 在调用 `$hammer` 前运行 `scripts/start_cosh_hammer_dashboard.py`；只有它完成 `/healthz` 校验并输出 `READY` 后才继续。启动器固定使用端口 `57172`，随后通过系统默认浏览器打开。
-5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；该 prompt 要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
+5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；其中包含用户的 worktree 决策，由 Hammer 自己按 Stage 1 schema 写入 `.hammer/`。该 prompt 还要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
 
 ### 编码模式
 

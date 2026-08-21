@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import re
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,10 @@ from typing import Any, Mapping
 
 
 WORK_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
+WORKTREE_MIGRATION_RE = re.compile(
+    r"workspace\.worktree\s+decision=migrated_away\s+path=(.+?)"
+    r"(?:\s+tool=\S+)?\s*$"
+)
 PLUGIN_RELATIVE = Path(".cosh") / "hammer-plugin"
 STAGE_DEFINITIONS = (
     ("launch", "需求入口", "launch/launch.json"),
@@ -131,6 +136,7 @@ def initialize_launch(
     refined_requirement: str,
     source: Mapping[str, Any],
     hammer_root: Path,
+    worktree_policy: str = "skip",
 ) -> dict[str, Any]:
     project = project.resolve()
     if not project.is_dir():
@@ -138,6 +144,8 @@ def initialize_launch(
     hammer = validate_hammer_root(hammer_root)
     if not refined_requirement.strip():
         raise CoshHammerError("澄清后的需求不能为空")
+    if worktree_policy not in {"skip", "open"}:
+        raise CoshHammerError("worktree 策略只能是 skip 或 open")
     root = plugin_root(project, work_id)
     launch_dir = root / "launch"
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -153,8 +161,23 @@ def initialize_launch(
         launch_dir / "request.md",
         f"# {work_id}\n\n{refined_requirement.strip()}\n",
     )
+    if worktree_policy == "open":
+        worktree_reason = "用户在本次 cosh-hammer 请求中明确要求使用 worktree"
+    else:
+        worktree_reason = (
+            "用户通过 cosh-hammer 明确选择默认关闭 worktree；本次未明确指定开启"
+        )
+    worktree_decision = (
+        "本次工作区隔离决策来自用户，请由 Hammer 自己在 Stage 1 产物中按以下合法 "
+        "schema 记录；插件不得写入 `.hammer/`，也不要再次询问：\n\n"
+        "## 工作区隔离决策\n"
+        f"- decision: {worktree_policy}\n"
+        "- source: user\n"
+        f"- reason: {worktree_reason}\n\n"
+    )
     hammer_prompt = (
         "$hammer\n\n"
+        f"{worktree_decision}"
         "请以 Hammer 作为唯一主流程处理以下需求。设计、三路技术评审、上报、计划、"
         "最终 UT/CI/CR/E2E 与交付均使用 Hammer 原生流程；进入 Execute 编码任务时，"
         "使用 $cosh-hammer 编码模式细化并实现当前 Hammer 父任务。为了让标准 task-dispatch "
@@ -168,6 +191,7 @@ def initialize_launch(
         "work": work_id,
         "project": str(project),
         "hammer": {"required": True, "root": str(hammer)},
+        "worktree": {"policy": worktree_policy, "source": "user"},
         "hammer_prompt": hammer_prompt,
         "dashboard_url": f"http://127.0.0.1:57172/?work={work_id}",
         "created_at": _now(),
@@ -285,6 +309,86 @@ def _hammer_state(project: Path) -> dict[str, Any]:
     }
 
 
+def _git_output(project: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(project), *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "未知 Git 错误"
+        raise CoshHammerError(f"无法校验 Hammer worktree：{detail}")
+    return result.stdout.strip()
+
+
+def _git_common_dir(project: Path) -> Path:
+    value = Path(_git_output(project, "rev-parse", "--git-common-dir"))
+    return (value if value.is_absolute() else project / value).resolve()
+
+
+def _validate_migration_target(origin: Path, target: Path) -> Path:
+    candidate = target.expanduser().resolve()
+    if not candidate.is_dir():
+        raise CoshHammerError(f"Hammer worktree 迁移目标不存在：{candidate}")
+    if not (candidate / ".hammer" / "design" / "session.md").is_file():
+        raise CoshHammerError(f"Hammer worktree 迁移目标缺少 design/session.md：{candidate}")
+    try:
+        top_level = Path(_git_output(candidate, "rev-parse", "--show-toplevel")).resolve()
+        registered = {
+            Path(line.removeprefix("worktree ")).resolve()
+            for line in _git_output(
+                candidate, "worktree", "list", "--porcelain"
+            ).splitlines()
+            if line.startswith("worktree ")
+        }
+    except CoshHammerError as error:
+        raise CoshHammerError(
+            f"Hammer 迁移目标不是已注册的 Git worktree：{candidate}"
+        ) from error
+    if top_level != candidate or candidate not in registered:
+        raise CoshHammerError(f"Hammer 迁移目标不是已注册的 Git worktree：{candidate}")
+    origin_common = _git_common_dir(origin)
+    candidate_common = _git_common_dir(candidate)
+    try:
+        candidate_common.relative_to(origin_common)
+    except ValueError as error:
+        raise CoshHammerError(f"Hammer 迁移目标不是当前仓库的 Git worktree：{candidate}") from error
+    return candidate
+
+
+def _last_worktree_migration(project: Path) -> Path | None:
+    session = project / ".hammer" / "design" / "session.md"
+    if not session.is_file():
+        return None
+    matches = [
+        match.group(1).strip()
+        for line in session.read_text(encoding="utf-8").splitlines()
+        if (match := WORKTREE_MIGRATION_RE.search(line))
+    ]
+    if not matches:
+        return None
+    path = Path(matches[-1])
+    return path if path.is_absolute() else project / path
+
+
+def _active_project_root(project: Path) -> tuple[Path, list[str]]:
+    origin = project.resolve()
+    current = origin
+    chain: list[str] = []
+    visited = {origin}
+    for _ in range(8):
+        target = _last_worktree_migration(current)
+        if target is None:
+            return current, chain
+        current = _validate_migration_target(origin, target)
+        if current in visited:
+            raise CoshHammerError("Hammer worktree 迁移链存在循环")
+        visited.add(current)
+        chain.append(str(current))
+    raise CoshHammerError("Hammer worktree 迁移链超过 8 层")
+
+
 def _hammer_stage_status(hammer: Mapping[str, Any], stage_id: str) -> str:
     stage = str(hammer.get("stage", "")).lower()
     status = str(hammer.get("status", "")).lower()
@@ -315,7 +419,8 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     if not isinstance(configured_root, str) or not configured_root:
         raise CoshHammerError("launch.json 缺少 Hammer 根目录")
     validate_hammer_root(Path(configured_root))
-    hammer = _hammer_state(project)
+    active_project, migration_chain = _active_project_root(project)
+    hammer = _hammer_state(active_project)
     stages = []
     for stage_id, label, relative in STAGE_DEFINITIONS:
         if relative:
@@ -351,6 +456,11 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         "schema_version": 1,
         "work": work_id,
         "project": str(project),
+        "active_project": str(active_project),
+        "workspace": {
+            "migrated": bool(migration_chain),
+            "migration_chain": migration_chain,
+        },
         "hammer": hammer,
         "launch": {"dashboard_url": launch.get("dashboard_url")},
         "stages": stages,
@@ -447,6 +557,12 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--source-kind", choices=("text", "file"), default="text")
     init.add_argument("--source", required=True)
     init.add_argument("--hammer-root", type=Path, required=True)
+    init.add_argument(
+        "--worktree",
+        choices=("skip", "open"),
+        default="skip",
+        help="工作区隔离策略；默认关闭，仅在用户明确要求时使用 open",
+    )
     status = sub.add_parser("status", help="输出观察板投影")
     status.add_argument("--project", type=Path, required=True)
     status.add_argument("--work", required=True)
@@ -463,6 +579,7 @@ def main() -> int:
                 refined_requirement=args.requirement,
                 source={"kind": args.source_kind, "value": args.source},
                 hammer_root=args.hammer_root,
+                worktree_policy=args.worktree,
             )
         else:
             payload = build_status(args.project, args.work)

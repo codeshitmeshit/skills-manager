@@ -13,7 +13,7 @@
 
 ## 入口交接
 
-把用户原始输入与澄清后的需求分别保存在 `launch/request.json`、`launch/request.md`。`launch/launch.json` 保存结构化 Hammer prompt、Hammer 依赖位置和观察板 URL。观察板启动成功后才调用 `$hammer`。
+把用户原始输入与澄清后的需求分别保存在 `launch/request.json`、`launch/request.md`。`launch/launch.json` 保存结构化 Hammer prompt、Hammer 依赖位置、worktree 策略和观察板 URL。入口默认 `--worktree skip`；只有当前请求明确要求 worktree 时使用 `--worktree open`。观察板启动成功后才调用 `$hammer`。
 
 ## 编码交接
 

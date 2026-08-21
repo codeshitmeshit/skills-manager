@@ -38,6 +38,8 @@ function render(data) {
   addDefinition(hammer, "阶段", data.hammer.stage);
   addDefinition(hammer, "状态", data.hammer.status);
   addDefinition(hammer, "当前任务", data.hammer.current_task);
+  addDefinition(hammer, "活动目录", data.active_project);
+  addDefinition(hammer, "工作区", data.workspace?.migrated ? "已跟随 Hammer worktree" : "原目录（未迁移）");
   document.querySelector("#mode").textContent = data.control?.mode === "continuous" ? "连续推进" : "单独推进";
   const stages = document.querySelector("#stages");
   stages.replaceChildren();

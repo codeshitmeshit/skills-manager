@@ -11,6 +11,8 @@
 - `.hammer/`：只读展示 Hammer design、review、plan、execute、Gate 和交付状态；
 - `.cosh/hammer-plugin/<work-id>/`：展示入口、CodeGraph、预计修改面、定位、编码计划、细分任务与交接状态。
 
+入口目录默认保持为活动目录，不因发现其他 Git worktree 而自行迁移。只有 Hammer 在当前 `.hammer/design/session.md` 写入合法的 `workspace.worktree decision=migrated_away path=...` 事件后，服务才校验目标属于当前仓库的已注册 Git worktree，并沿迁移链读取目标 `.hammer/`；无事件时始终继续监听原目录，非法或循环迁移时 fail closed。插件状态和控制仍留在入口目录的 `.cosh/hammer-plugin/<work-id>/`。
+
 服务只能把控制写入插件目录。缓存 `dashboard/dashboard-state.json` 只用于重启恢复显示，不是 Hammer 或插件门禁证据。实时投影失败时展示最后有效快照并标记 stale，禁用所有控制。
 
 CloudDev 场景仍使用固定一对一 SSH 转发：本机 `127.0.0.1:57172` 到远端 `127.0.0.1:57172`。远端不要使用 `--open`；隧道建立后在本机系统浏览器打开固定 URL。
