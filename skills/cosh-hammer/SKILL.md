@@ -18,7 +18,7 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 - 不得用插件状态伪造或替代 Hammer Gate 证据。
 - Hammer 不可用、状态不合法或投影失败时 fail closed。
 
-开始前按任务读取：[工作流](references/workflow.md)、[Hammer 契约](references/hammer-contract.md)、[编码产物](references/coding-artifacts.md)、[实时观察板](references/realtime-dashboard.md) 与 [重大决策](references/major-decisions.md)。
+开始前按任务读取：[工作流](references/workflow.md)、[Hammer 契约](references/hammer-contract.md)、[接管硬门](references/handoff-gates.md)、[编码产物](references/coding-artifacts.md)、[实时观察板](references/realtime-dashboard.md) 与 [重大决策](references/major-decisions.md)。
 
 ## 两种运行模式
 
@@ -28,20 +28,25 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 
 1. 只澄清产品目标、范围、约束和验收条件，不提前替 Hammer 作技术设计。
 2. 检查 `$hammer` 可用；缺失时停止，不得降级为独立研发流程。
-3. 在入口澄清的同一轮提示用户可绑定当前需求 Meego ID，也允许跳过。提供时向 `scripts/cosh_hammer_state.py init` 传 `--meego-id <id>`；未提供时继续，Meego 对本插件是弱依赖，不得因此阻塞或自行创建事项。默认传入 `--worktree skip`；只有用户在本次请求中明确要求使用 worktree 时才传入 `--worktree open`，不得根据实现复杂度自行开启。
-4. 在调用 `$hammer` 前运行 `scripts/start_cosh_hammer_dashboard.py`；只有它完成 `/healthz` 校验并输出 `READY` 后才继续。启动器固定使用端口 `57172`，随后通过系统默认浏览器打开。
-5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；其中包含用户的 worktree 决策，以及已绑定时的 Meego `existing` 决策，由 Hammer 自己按 Stage 1 schema 写入 `.hammer/`。未绑定时不替 Hammer 决策，继续其原生 Meego 流程。该 prompt 还要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
+3. 看到 `$cosh-hammer` 后，首个文件系统副作用必须是运行 `scripts/cosh_hammer_state.py init`，生成 `.cosh/hammer-plugin/<work-id>/launch.json`；在此之前不得调用 Hammer。入口澄清的同一轮提示用户可绑定当前需求 Meego ID，也允许跳过。提供时传 `--meego-id <id>`；未提供时继续。默认传 `--worktree skip`；只有用户明确要求 worktree 时才传 `--worktree open`。
+4. 运行 `scripts/start_cosh_hammer_dashboard.py`。只有固定端口 `57172` 的 `/healthz` 返回当前 project/work 且启动器输出 `READY` 后才继续。
+5. 运行 `scripts/cosh_hammer_state.py preflight`。未生成 launch、观察板不匹配、决策未固化或 Hammer prompt 缺少编码触发语句时立即 `BLOCKED`；禁止先调用 Hammer、稍后补接。
+6. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；其中包含 worktree、Meego 与编码调度契约。随后由 Hammer 接管 design、三路技术评审、上报和 plan。
+7. Hammer Plan Ready 后、Execute 分发 coding task 前，必须运行 `scripts/cosh_hammer_state.py verify-handoff`。失败时返回 `BLOCKED` 并要求 Hammer 回到 Plan 修正；本插件不得修改 `.hammer/`，也不得允许 Hammer 静默改派普通 coding worker。
 
 ### 编码模式
 
 仅当 Hammer Execute 已进入编码任务且存在可读 Hammer plan 时运行：
 
-1. 只读 Hammer design、三路评审结论、plan 和当前父任务。
-2. 首次进入时按顺序生成 CodeGraph 代码事实、预计修改面、精准定位、编码计划和细分任务。
-3. 按用户在观察板选择的单独推进或连续推进方式实现当前 Hammer 父任务下的细分任务。
-4. 细分任务只记录 checkpoint；完成当前 Hammer 父任务的全部细分任务后，才创建一个符合 Hammer 契约的父任务 commit。
-5. 向 Hammer 返回标准 `DONE` 或 `BLOCKED`；若 `launch.json` 已绑定 Meego，同时携带该 Meego ID，未绑定则省略且不阻塞。不得新增 Hammer 状态或自行推进 Hammer Gate。
-6. 编码结束后回归 Hammer；远程 UT、CI、最终 CR、BOE/E2E、验收、上报、MR 与归档全部继续使用 Hammer 原生流程。
+1. 在读取代码或运行 CodeGraph 前，先运行 `scripts/cosh_hammer_state.py verify-coding --task <Hammer Task>`；当前任务、Execute session、触发语句、work、活动 worktree 或观察板任一不一致时返回 `BLOCKED`。
+2. 只读 Hammer design、三路评审结论、plan 和当前父任务。
+3. 首次进入时按顺序生成 CodeGraph 代码事实、预计修改面、精准定位、编码计划和细分任务。
+4. 按用户在观察板选择的单独推进或连续推进方式实现当前 Hammer 父任务下的细分任务。
+5. 细分任务只记录 checkpoint；完成当前 Hammer 父任务的全部细分任务后，才创建一个符合 Hammer 契约的父任务 commit。
+6. 向 Hammer 返回标准 `DONE` 或 `BLOCKED`；若 `launch.json` 已绑定 Meego，同时携带该 Meego ID，未绑定则省略且不阻塞。不得新增 Hammer 状态或自行推进 Hammer Gate。
+7. 编码结束后回归 Hammer；远程 UT、CI、最终 CR、BOE/E2E、验收、上报、MR 与归档全部继续使用 Hammer 原生流程。
+
+Hammer 已完成 Design/Plan 但本插件尚未初始化时，使用 `attach-existing-hammer` 迟到接入。它只能创建 `.cosh/**`、启动观察板并输出 Plan 修复要求；不得修改 `.hammer/**`。修复 Hammer Plan 后仍须依次通过 `verify-handoff` 与 `verify-coding`。
 
 ## 决策规则
 
@@ -70,3 +75,4 @@ python3 <skill-root>/scripts/start_cosh_hammer_dashboard.py \
 - 插件产物都位于 `.cosh/hammer-plugin/<work-id>/`。
 - 编码结果以标准 `DONE`/`BLOCKED` 回到 Hammer。
 - 最终测试、CR、E2E 和交付状态来自 Hammer，而不是观察板缓存。
+- 以上硬门约束所有从 Cosh 入口启动和由 Cosh 接管的链路；若外部直接绕过本 skill 启动 Hammer Execute，Skill 进程无法充当常驻 hook。要对这种旁路实现进程级绝对拦截，需要 Hammer 提供正式 task-dispatch hook 或统一由 Cosh launcher 启动 Hammer。

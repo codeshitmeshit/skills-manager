@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
 import subprocess
+import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +25,15 @@ WORKTREE_MIGRATION_RE = re.compile(
     r"(?:\s+tool=\S+)?\s*$"
 )
 MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+FIXED_DASHBOARD_PORT = 57172
+CODING_TRIGGER = "Use $cosh-hammer in coding mode for this Hammer parent task."
+PLAN_HANDOFF_CHECKS = (
+    "ac_task_test_mapping",
+    "external_dependencies",
+    "task_dependencies",
+    "task_executability",
+    "risk_classification",
+)
 PLUGIN_RELATIVE = Path(".cosh") / "hammer-plugin"
 STAGE_DEFINITIONS = (
     ("launch", "需求入口", "launch/launch.json"),
@@ -210,7 +224,10 @@ def initialize_launch(
         "使用 $cosh-hammer 编码模式细化并实现当前 Hammer 父任务。为了让标准 task-dispatch "
         "稳定传递该约束，请在 .hammer/plan/plan.md 的每个 coding task 执行说明中原样保留："
         "`Use $cosh-hammer in coding mode for this Hammer parent task.`；该计划文件仍只能由 "
-        "Hammer 生成和维护。\n\n"
+        "Hammer 生成和维护。Hammer Plan Ready 后、进入 Execute 分发任何 coding task 前，"
+        "必须先运行 Cosh 的 `verify-handoff`；校验失败时返回 `BLOCKED` 并回到 Plan 修正，"
+        "不得改派普通 coding worker。Cosh 编码 worker 在 CodeGraph 前还必须运行 "
+        "`verify-coding --task <当前 Hammer Task>`，失败时不得开始编码。\n\n"
         f"需求：\n{refined_requirement.strip()}"
     )
     launch = {
@@ -226,6 +243,274 @@ def initialize_launch(
     }
     _atomic_json(launch_dir / "launch.json", launch, owner_root=root)
     return launch
+
+
+def _dashboard_payload(project: Path, work_id: str, endpoint: str) -> dict[str, Any]:
+    if endpoint not in {"healthz", "status"}:
+        raise CoshHammerError("不支持的观察板探测端点")
+    path = "/healthz" if endpoint == "healthz" else "/api/status"
+    query = urllib.parse.urlencode({"work": work_id})
+    url = f"http://127.0.0.1:{FIXED_DASHBOARD_PORT}{path}?{query}"
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise CoshHammerError(f"观察板不可用：{error}") from error
+    if not isinstance(payload, dict):
+        raise CoshHammerError("观察板返回值不是 JSON 对象")
+    return payload
+
+
+def _validate_launch_contract(project: Path, work_id: str, launch: Mapping[str, Any]) -> None:
+    if launch.get("work") != work_id or launch.get("project") != str(project.resolve()):
+        raise CoshHammerError("launch.json 的 project/work 与当前入口不一致")
+    worktree = launch.get("worktree")
+    if not isinstance(worktree, dict) or worktree.get("policy") not in {"skip", "open"} or worktree.get("source") != "user":
+        raise CoshHammerError("launch.json 未固化合法 worktree 用户决策")
+    meego = launch.get("meego")
+    if not isinstance(meego, dict) or not isinstance(meego.get("bound"), bool):
+        raise CoshHammerError("launch.json 未固化 Meego 绑定决策")
+    if meego.get("bound") and (
+        not isinstance(meego.get("id"), str) or not isinstance(meego.get("url"), str)
+    ):
+        raise CoshHammerError("launch.json 的 Meego 绑定信息不完整")
+    prompt = launch.get("hammer_prompt")
+    if not isinstance(prompt, str) or CODING_TRIGGER not in prompt:
+        raise CoshHammerError("hammer_prompt 缺少 Cosh 编码触发语句")
+
+
+def run_preflight(project: Path, work_id: str) -> dict[str, Any]:
+    project = project.resolve()
+    root, launch, active_project, _migration_chain = _launch_context(project, work_id)
+    _validate_launch_contract(project, work_id, launch)
+    try:
+        health = _dashboard_payload(project, work_id, "healthz")
+    except CoshHammerError:
+        raise
+    except OSError as error:
+        raise CoshHammerError(f"观察板不可用：{error}") from error
+    if (
+        health.get("status") != "ready"
+        or health.get("project") != str(project)
+        or health.get("work") != work_id
+        or health.get("port") != FIXED_DASHBOARD_PORT
+    ):
+        raise CoshHammerError("观察板 healthz 的 project/work/port 不匹配")
+    result = {
+        "status": "passed",
+        "gate": "preflight",
+        "work": work_id,
+        "project": str(project),
+        "active_project": str(active_project),
+        "dashboard": health,
+        "checked_at": _now(),
+    }
+    _atomic_json(root / "gates" / "preflight.json", result, owner_root=root)
+    return result
+
+
+def _plan_coding_tasks(plan_text: str) -> list[dict[str, str]]:
+    headings = list(
+        re.finditer(r"(?m)^##\s+(\d+(?:\.\d+)*)\.\s+(.+?)\s*$", plan_text)
+    )
+    tasks: list[dict[str, str]] = []
+    for index, heading in enumerate(headings):
+        title = heading.group(2).strip()
+        if "默认能力" not in title:
+            continue
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(plan_text)
+        block = plan_text[heading.start():end]
+        tasks.append(
+            {
+                "ref": f"Task {heading.group(1)}",
+                "title": title,
+                "block": block,
+            }
+        )
+    return tasks
+
+
+def _validate_plan_handoff_evidence(handoff: Mapping[str, Any]) -> None:
+    evidence = handoff.get("evidence")
+    if not isinstance(evidence, dict) or evidence.get("plan_lint") != "passed":
+        raise CoshHammerError("Hammer Plan Handoff evidence.plan_lint 未通过")
+    mode = handoff.get("mode")
+    if mode in {"inline", "lite-inline"}:
+        checks = evidence.get("inline_checks")
+        if not isinstance(checks, dict):
+            raise CoshHammerError("Hammer Plan Handoff evidence.inline_checks 缺失")
+        for name in PLAN_HANDOFF_CHECKS:
+            check = checks.get(name)
+            if (
+                not isinstance(check, dict)
+                or check.get("status") != "passed"
+                or not isinstance(check.get("evidence"), list)
+                or not check["evidence"]
+            ):
+                raise CoshHammerError(f"Hammer Plan Handoff evidence.{name} 未闭合")
+        return
+    if mode == "reviewer":
+        review = evidence.get("review")
+        if not isinstance(review, dict) or review.get("verdict") not in {
+            "pass",
+            "pass_with_risks",
+        }:
+            raise CoshHammerError("Hammer Plan Handoff evidence.review 未通过")
+        checks = review.get("checks")
+        if not isinstance(checks, dict) or any(
+            checks.get(name) != "passed" for name in PLAN_HANDOFF_CHECKS
+        ):
+            raise CoshHammerError("Hammer Plan Handoff reviewer checks 未闭合")
+        return
+    raise CoshHammerError("Hammer Plan Handoff mode 无效")
+
+
+def verify_handoff(project: Path, work_id: str) -> dict[str, Any]:
+    project = project.resolve()
+    preflight = run_preflight(project, work_id)
+    root, _launch, active_project, _migration_chain = _launch_context(project, work_id)
+    dashboard = _dashboard_payload(project, work_id, "status")
+    if (
+        dashboard.get("stale")
+        or dashboard.get("project") != str(project)
+        or dashboard.get("work") != work_id
+        or dashboard.get("active_project") != str(active_project)
+    ):
+        raise CoshHammerError("观察板状态 stale 或监听目标与当前 Hammer worktree 不一致")
+    plan_path = active_project / ".hammer" / "plan" / "plan.md"
+    handoff_path = active_project / ".hammer" / "plan" / "handoff.json"
+    if not plan_path.is_file() or not handoff_path.is_file():
+        raise CoshHammerError("Hammer Plan Ready 未完成：缺少 plan.md 或 handoff.json")
+    handoff = _read_json(handoff_path)
+    plan_sha = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+    if (
+        handoff.get("status") != "passed"
+        or handoff.get("plan_sha256") != plan_sha
+    ):
+        raise CoshHammerError("Hammer Plan Ready 未通过或 handoff 已过期")
+    _validate_plan_handoff_evidence(handoff)
+    tasks = _plan_coding_tasks(plan_path.read_text(encoding="utf-8"))
+    if not tasks:
+        raise CoshHammerError("Hammer Plan 没有可接管的 coding task")
+    missing = [task["ref"] for task in tasks if CODING_TRIGGER not in task["block"]]
+    if missing:
+        raise CoshHammerError(
+            "Hammer coding task 缺少 Cosh 触发语句：" + ", ".join(missing)
+        )
+    result = {
+        "status": "passed",
+        "gate": "plan-execute-handoff",
+        "work": work_id,
+        "project": str(project),
+        "active_project": str(active_project),
+        "plan_sha256": plan_sha,
+        "coding_tasks": [task["ref"] for task in tasks],
+        "preflight_checked_at": preflight["checked_at"],
+        "checked_at": _now(),
+    }
+    _atomic_json(root / "gates" / "plan-handoff.json", result, owner_root=root)
+    return result
+
+
+def _normalize_task_ref(value: str) -> str:
+    match = re.fullmatch(r"(?i)\s*task[-_\s]*(\d+(?:\.\d+)*)\s*", value)
+    if not match:
+        raise CoshHammerError(f"Hammer task ID 格式无效：{value}")
+    return f"Task {match.group(1)}"
+
+
+def verify_coding(project: Path, work_id: str, task_ref: str) -> dict[str, Any]:
+    project = project.resolve()
+    requested = _normalize_task_ref(task_ref)
+    handoff = verify_handoff(project, work_id)
+    root, _launch, active_project, _migration_chain = _launch_context(project, work_id)
+    if requested not in handoff["coding_tasks"]:
+        raise CoshHammerError("请求的 Hammer task 不是当前 Plan 中的 coding task")
+    session_path = active_project / ".hammer" / "execute" / "session.md"
+    if not session_path.is_file():
+        raise CoshHammerError("Hammer Execute 尚未创建 session，禁止进入 Cosh 编码")
+    session = session_path.read_text(encoding="utf-8")
+    current_raw = _markdown_field(session, "current_task_ref")
+    current_stage = _markdown_field(session, "current_stage")
+    next_action = _markdown_field(session, "next_action")
+    if not current_raw:
+        raise CoshHammerError("Hammer Execute session 缺少 current_task_ref")
+    current = _normalize_task_ref(current_raw)
+    if current != requested:
+        raise CoshHammerError(
+            f"Cosh 请求 task 与 Hammer Execute 当前 task 不一致：{requested} != {current}"
+        )
+    if not current_stage or "coding" not in current_stage.lower() or next_action != "run-step-4":
+        raise CoshHammerError("Hammer Execute 当前不处于 coding task 调度阶段")
+    result = {
+        "status": "passed",
+        "gate": "coding-dispatch",
+        "work": work_id,
+        "project": str(project),
+        "active_project": str(active_project),
+        "hammer_task": current,
+        "next_action": next_action,
+        "plan_sha256": handoff["plan_sha256"],
+        "checked_at": _now(),
+    }
+    _atomic_json(root / "gates" / "coding-dispatch.json", result, owner_root=root)
+    return result
+
+
+def attach_existing_hammer(
+    project: Path,
+    *,
+    work_id: str,
+    refined_requirement: str,
+    hammer_root: Path,
+    meego_id: str | None = None,
+) -> dict[str, Any]:
+    project = project.resolve()
+    root = plugin_root(project, work_id)
+    if (root / "launch" / "launch.json").exists():
+        raise CoshHammerError("当前 work 已初始化，不需要迟到接入")
+    active_project, migration_chain = _active_project_root(project)
+    plan_path = active_project / ".hammer" / "plan" / "plan.md"
+    if not plan_path.is_file():
+        raise CoshHammerError("迟到接入要求 Hammer 已生成 plan.md")
+    worktree_policy = "open" if migration_chain else "skip"
+    launch = initialize_launch(
+        project,
+        work_id=work_id,
+        refined_requirement=refined_requirement,
+        source={"kind": "hammer-existing", "value": str(plan_path)},
+        hammer_root=hammer_root,
+        worktree_policy=worktree_policy,
+        meego_id=meego_id,
+    )
+    tasks = _plan_coding_tasks(plan_path.read_text(encoding="utf-8"))
+    missing = [task["ref"] for task in tasks if CODING_TRIGGER not in task["block"]]
+    repair = (
+        "Hammer Plan 必须回到 plan owner，为每个 coding task 补充 Cosh 触发语句后重跑 Plan Lint 与 Handoff；Cosh 不修改 .hammer。"
+        if missing
+        else "Hammer Plan 已包含 Cosh 触发语句；启动观察板后运行 verify-handoff。"
+    )
+    launch["entry_mode"] = "attached-existing"
+    launch["hammer_prompt"] = (
+        "$hammer\n\n当前 Hammer 已完成 Design/Plan，Cosh 正在迟到接入。"
+        f"{repair}\n触发语句必须原样为：`{CODING_TRIGGER}`"
+    )
+    _atomic_json(root / "launch" / "launch.json", launch, owner_root=root)
+    result = {
+        "status": "blocked" if missing else "ready_for_handoff",
+        "work": work_id,
+        "project": str(project),
+        "active_project": str(active_project),
+        "missing_trigger_tasks": missing,
+        "repair_required": repair,
+        "dashboard_command": (
+            "python3 scripts/start_cosh_hammer_dashboard.py "
+            f"--project {project} --work {work_id} --hammer-root {validate_hammer_root(hammer_root)}"
+        ),
+        "created_at": _now(),
+    }
+    _atomic_json(root / "launch" / "attach.json", result, owner_root=root)
+    return result
 
 
 def _artifact_status(path: Path) -> str:
@@ -442,6 +727,8 @@ def _artifact_category(scope: str, relative: Path) -> str:
         return "coding" if parts and parts[0] == "coding" else "requirement"
     if lowered.startswith("design/drafts/stage1-"):
         return "requirement"
+    if lowered.startswith("design/reviews/"):
+        return "review"
     if lowered.startswith("design/") and "review" in name:
         return "review"
     if lowered.startswith("design/"):
@@ -461,6 +748,119 @@ def _artifact_category(scope: str, relative: Path) -> str:
             return "validation"
         return "coding"
     return "delivery"
+
+
+def _review_report(
+    path: Path, *, channel: str, artifact_path: str
+) -> dict[str, Any]:
+    if not path.is_file():
+        return {
+            "channel": channel,
+            "status": "pending",
+            "review_mode": None,
+            "review_pass": None,
+            "review_attempt": None,
+            "blocking_issue_count": None,
+            "unresolved_finding_ids": None,
+            "max_severity": None,
+            "fallback_stage": None,
+            "artifact_path": None,
+        }
+    text = path.read_text(encoding="utf-8")
+    raw_count = _markdown_field(text, "blocking_issue_count")
+    try:
+        count = int(raw_count) if raw_count is not None else None
+    except ValueError:
+        count = None
+    raw_attempt = _markdown_field(text, "review_attempt")
+    try:
+        attempt = int(raw_attempt) if raw_attempt is not None else None
+    except ValueError:
+        attempt = None
+    return {
+        "channel": channel,
+        "status": (_markdown_field(text, "status") or "unknown").lower(),
+        "review_mode": _markdown_field(text, "review_mode"),
+        "review_pass": _markdown_field(text, "review_pass"),
+        "review_attempt": attempt,
+        "blocking_issue_count": count,
+        "unresolved_finding_ids": _markdown_field(text, "unresolved_finding_ids"),
+        "max_severity": _markdown_field(text, "max_severity"),
+        "fallback_stage": _markdown_field(text, "fallback_stage"),
+        "artifact_path": artifact_path,
+    }
+
+
+def _review_round_status(reports: list[dict[str, Any]]) -> str:
+    statuses = {str(report.get("status", "unknown")).lower() for report in reports}
+    if statuses & {"blocked", "reject_stage1", "reject_stage2", "failed", "unknown"}:
+        return "blocked"
+    if statuses and statuses <= {"pass", "passed", "skipped_after_limit"}:
+        return "passed"
+    return "running"
+
+
+def _review_results(active_project: Path) -> dict[str, Any]:
+    reviews_root = active_project / ".hammer" / "design" / "reviews"
+    rounds: list[dict[str, Any]] = []
+    if reviews_root.is_dir():
+        round_dirs = sorted(
+            (
+                path
+                for path in reviews_root.iterdir()
+                if path.is_dir() and path.name.isdigit() and not path.is_symlink()
+            ),
+            key=lambda path: int(path.name),
+            reverse=True,
+        )
+        for round_dir in round_dirs:
+            reports = [
+                _review_report(
+                    round_dir / f"{channel}.md",
+                    channel=channel,
+                    artifact_path=f"design/reviews/{round_dir.name}/{channel}.md",
+                )
+                for channel in ("general", "security", "stability")
+            ]
+            rounds.append(
+                {
+                    "round": int(round_dir.name),
+                    "status": _review_round_status(reports),
+                    "reports": reports,
+                }
+            )
+    if not rounds:
+        design = active_project / ".hammer" / "design"
+        legacy = (
+            ("general", "review.md"),
+            ("security", "security-review.md"),
+            ("stability", "stability-review.md"),
+        )
+        if any((design / name).is_file() for _channel, name in legacy):
+            reports = [
+                _review_report(
+                    design / name,
+                    channel=channel,
+                    artifact_path=f"design/{name}",
+                )
+                for channel, name in legacy
+            ]
+            attempts = [
+                report["review_attempt"]
+                for report in reports
+                if report["review_attempt"] is not None
+            ]
+            rounds.append(
+                {
+                    "round": max(attempts) if attempts else 1,
+                    "status": _review_round_status(reports),
+                    "reports": reports,
+                }
+            )
+    return {
+        "latest_round": rounds[0]["round"] if rounds else None,
+        "rounds": rounds,
+    }
 
 
 def _safe_artifact_path(root: Path, relative_path: str) -> tuple[Path, Path]:
@@ -582,6 +982,35 @@ def _hammer_stage_status(hammer: Mapping[str, Any], stage_id: str) -> str:
     return "pending"
 
 
+def _stage_progress(stages: list[dict[str, Any]]) -> dict[str, Any]:
+    completed = sum(1 for stage in stages if stage["status"] == "passed")
+    active = next(
+        (
+            stage
+            for stage in stages
+            if stage["status"] in {"running", "blocked", "failed"}
+        ),
+        None,
+    )
+    marker = "current"
+    if active is None:
+        active = next(
+            (stage for stage in stages if stage["status"] == "pending"), None
+        )
+        marker = "next" if active is not None else "complete"
+    for stage in stages:
+        stage["progress_marker"] = marker if stage is active else None
+    total = len(stages)
+    return {
+        "stage_id": active["id"] if active is not None else None,
+        "label": active["label"] if active is not None else "全部完成",
+        "marker": marker,
+        "completed": completed,
+        "total": total,
+        "percent": round(completed / total * 100) if total else 100,
+    }
+
+
 def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     project = project.resolve()
     root, launch, active_project, migration_chain = _launch_context(project, work_id)
@@ -593,6 +1022,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         else:
             status = _hammer_stage_status(hammer, stage_id)
         stages.append({"id": stage_id, "label": label, "status": status})
+    progress = _stage_progress(stages)
     control_path = root / "coding" / "control.json"
     control = _read_json(control_path) if control_path.is_file() else {"mode": "single"}
     tasks_path = root / "coding" / "tasks.json"
@@ -632,8 +1062,10 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             "meego": launch.get("meego", {"bound": False}),
         },
         "stages": stages,
+        "progress": progress,
         "control": control,
         "coding": {"current_task": current_coding_task, "tasks": coding_tasks},
+        "review_results": _review_results(active_project),
         "artifacts": list_artifacts(project, work_id),
         "stale": False,
         "controls_enabled": True,
@@ -692,13 +1124,20 @@ def apply_control(
         raw_tasks = task_state.get("tasks")
         if not isinstance(raw_tasks, list):
             raise CoshHammerError("coding/tasks.json 的 tasks 无效")
-        known = {
-            str(item.get("id"))
-            for item in raw_tasks
-            if isinstance(item, dict) and item.get("id") is not None
-        }
-        if task.strip() not in known:
+        selected = next(
+            (
+                item
+                for item in raw_tasks
+                if isinstance(item, dict) and str(item.get("id")) == task.strip()
+            ),
+            None,
+        )
+        if selected is None:
             raise CoshHammerError("授权目标不是当前 work 的细分任务")
+        hammer_parent = selected.get("hammer_parent")
+        if not isinstance(hammer_parent, str) or not hammer_parent.strip():
+            raise CoshHammerError("细分任务缺少 Hammer 父任务引用")
+        verify_coding(project, work_id, hammer_parent)
         state["authorized_task"] = task.strip()
     else:
         raise CoshHammerError("不支持的插件控制动作")
@@ -739,6 +1178,27 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="输出观察板投影")
     status.add_argument("--project", type=Path, required=True)
     status.add_argument("--work", required=True)
+    preflight = sub.add_parser("preflight", help="调用 Hammer 前执行入口硬门")
+    preflight.add_argument("--project", type=Path, required=True)
+    preflight.add_argument("--work", required=True)
+    handoff = sub.add_parser(
+        "verify-handoff", help="Hammer Plan Ready 后验证 Cosh 接管契约"
+    )
+    handoff.add_argument("--project", type=Path, required=True)
+    handoff.add_argument("--work", required=True)
+    coding = sub.add_parser("verify-coding", help="CodeGraph 前验证当前 Hammer coding task")
+    coding.add_argument("--project", type=Path, required=True)
+    coding.add_argument("--work", required=True)
+    coding.add_argument("--task", required=True)
+    attach = sub.add_parser(
+        "attach-existing-hammer", help="为已到 Plan 的 Hammer 任务迟到接入 Cosh"
+    )
+    attach.add_argument("--project", type=Path, required=True)
+    attach.add_argument("--work", required=True)
+    attach.add_argument("--requirement", required=True)
+    attach.add_argument("--hammer-root", type=Path, required=True)
+    attach.add_argument("--meego-id")
+    attach.add_argument("--no-open", action="store_true")
     return parser
 
 
@@ -755,8 +1215,42 @@ def main() -> int:
                 worktree_policy=args.worktree,
                 meego_id=args.meego_id,
             )
-        else:
+        elif args.command == "status":
             payload = build_status(args.project, args.work)
+        elif args.command == "preflight":
+            payload = run_preflight(args.project, args.work)
+        elif args.command == "verify-handoff":
+            payload = verify_handoff(args.project, args.work)
+        elif args.command == "verify-coding":
+            payload = verify_coding(args.project, args.work, args.task)
+        else:
+            payload = attach_existing_hammer(
+                args.project,
+                work_id=args.work,
+                refined_requirement=args.requirement,
+                hammer_root=args.hammer_root,
+                meego_id=args.meego_id,
+            )
+            command = [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "start_cosh_hammer_dashboard.py"),
+                "--project",
+                str(args.project.resolve()),
+                "--work",
+                args.work,
+                "--hammer-root",
+                str(args.hammer_root.resolve()),
+            ]
+            if args.no_open:
+                command.append("--no-open")
+            try:
+                started = subprocess.run(
+                    command, check=True, capture_output=True, text=True
+                )
+            except subprocess.CalledProcessError as error:
+                detail = (error.stderr or error.stdout or str(error)).strip()
+                raise CoshHammerError(f"迟到接入观察板启动失败：{detail}") from error
+            payload["dashboard"] = started.stdout.strip()
     except CoshHammerError as error:
         raise SystemExit(str(error)) from error
     print(json.dumps(payload, ensure_ascii=False, indent=2))

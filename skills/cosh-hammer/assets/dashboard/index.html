@@ -37,11 +37,19 @@
             <p id="artifact-owner" class="eyebrow"></p>
             <h2 id="artifact-title"></h2>
           </div>
-          <button type="button" id="close-artifact">关闭</button>
+          <div class="viewer-actions">
+            <div id="artifact-view-mode" class="view-mode" aria-label="产物查看方式">
+              <button type="button" data-artifact-mode="rendered" class="active">阅读</button>
+              <button type="button" data-artifact-mode="raw">原文</button>
+            </div>
+            <button type="button" id="copy-artifact">复制原文</button>
+            <button type="button" id="close-artifact">关闭</button>
+          </div>
         </div>
-        <pre id="artifact-content"></pre>
+        <div id="artifact-content" class="artifact-content"></div>
       </div>
     </section>
+    <script src="/artifact-formatters.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

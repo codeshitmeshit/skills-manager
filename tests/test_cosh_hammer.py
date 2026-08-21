@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -11,6 +12,7 @@ import threading
 import unittest
 import urllib.request
 import urllib.parse
+from unittest import mock
 from http.server import ThreadingHTTPServer
 
 
@@ -19,6 +21,7 @@ SKILL_DIR = ROOT / "skills" / "cosh-hammer"
 STATE_SCRIPT = SKILL_DIR / "scripts" / "cosh_hammer_state.py"
 SERVER_SCRIPT = SKILL_DIR / "scripts" / "serve_cosh_hammer_dashboard.py"
 STARTER_SCRIPT = SKILL_DIR / "scripts" / "start_cosh_hammer_dashboard.py"
+FORMATTER_SCRIPT = SKILL_DIR / "assets" / "dashboard" / "artifact-formatters.js"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -52,6 +55,7 @@ class CoshHammerSkillTest(unittest.TestCase):
         for relative in (
             "references/workflow.md",
             "references/hammer-contract.md",
+            "references/handoff-gates.md",
             "references/coding-artifacts.md",
             "references/realtime-dashboard.md",
             "references/major-decisions.md",
@@ -59,10 +63,75 @@ class CoshHammerSkillTest(unittest.TestCase):
             "scripts/serve_cosh_hammer_dashboard.py",
             "scripts/start_cosh_hammer_dashboard.py",
             "assets/dashboard/index.html",
+            "assets/dashboard/artifact-formatters.js",
             "assets/dashboard/app.js",
             "assets/dashboard/styles.css",
         ):
             self.assertTrue((SKILL_DIR / relative).is_file(), relative)
+
+    def run_formatter(self, expression: str):
+        script = (
+            f"const formatter = require({json.dumps(str(FORMATTER_SCRIPT))});"
+            f"process.stdout.write(JSON.stringify({expression}));"
+        )
+        result = subprocess.run(
+            ["node", "-e", script],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_markdown_formatter_returns_structured_reading_blocks(self) -> None:
+        value = self.run_formatter(
+            "formatter.present('design.md', '# 标题\\n\\n- 第一项\\n- 第二项\\n\\n```go\\nfmt.Println(1)\\n```')"
+        )
+
+        self.assertEqual(value["kind"], "markdown")
+        self.assertEqual(
+            value["blocks"],
+            [
+                {"type": "heading", "level": 1, "text": "标题"},
+                {"type": "list", "ordered": False, "items": ["第一项", "第二项"]},
+                {"type": "code", "language": "go", "text": "fmt.Println(1)"},
+            ],
+        )
+
+    def test_markdown_formatter_recognizes_frontmatter_quotes_and_tables(self) -> None:
+        value = self.run_formatter(
+            "formatter.present('review.md', '---\\nstatus: passed\\n---\\n\\n> 风险已闭环\\n\\n| 项目 | 结果 |\\n| --- | --- |\\n| UT | passed |')"
+        )
+
+        self.assertEqual(
+            value["blocks"],
+            [
+                {"type": "frontmatter", "text": "status: passed"},
+                {"type": "quote", "text": "风险已闭环"},
+                {
+                    "type": "table",
+                    "headers": ["项目", "结果"],
+                    "rows": [["UT", "passed"]],
+                },
+            ],
+        )
+
+    def test_json_formatter_preserves_value_types_for_tree_view(self) -> None:
+        value = self.run_formatter(
+            "formatter.present('state.json', '{\"ok\":true,\"count\":2,\"items\":[null,\"x\"]}')"
+        )
+
+        self.assertEqual(value["kind"], "json")
+        self.assertEqual(
+            value["value"],
+            {"ok": True, "count": 2, "items": [None, "x"]},
+        )
+
+    def test_artifact_overlay_only_closes_for_backdrop_click(self) -> None:
+        value = self.run_formatter(
+            "[formatter.isBackdropClick('overlay', 'overlay'), formatter.isBackdropClick('panel', 'overlay')]"
+        )
+
+        self.assertEqual(value, [True, False])
 
 
 class CoshHammerStateTest(unittest.TestCase):
@@ -130,6 +199,299 @@ class CoshHammerStateTest(unittest.TestCase):
         )
         return target
 
+    def dashboard_payload(self, *, active_project: pathlib.Path | None = None, stale: bool = False):
+        return {
+            "healthz": {
+                "status": "ready",
+                "project": str(self.project.resolve()),
+                "work": "handoff-work",
+                "port": 57172,
+            },
+            "status": {
+                "stale": stale,
+                "project": str(self.project.resolve()),
+                "work": "handoff-work",
+                "active_project": str((active_project or self.project).resolve()),
+            },
+        }
+
+    def write_ready_plan(self, root: pathlib.Path, *, include_trigger: bool = True) -> pathlib.Path:
+        plan_dir = root / ".hammer" / "plan"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        trigger = (
+            "\nUse $cosh-hammer in coding mode for this Hammer parent task.\n"
+            if include_trigger
+            else "\n"
+        )
+        plan = plan_dir / "plan.md"
+        plan.write_text(
+            "# Plan\n\n"
+            "## 1. 实现订单校验（默认能力，coding）\n"
+            f"{trigger}"
+            "### Checklist\n\n- [ ] 实现代码与测试\n",
+            encoding="utf-8",
+        )
+        digest = hashlib.sha256(plan.read_bytes()).hexdigest()
+        (plan_dir / "handoff.json").write_text(
+            json.dumps(
+                {
+                    "status": "passed",
+                    "plan_sha256": digest,
+                    "mode": "inline",
+                    "review_triggers": [],
+                    "evidence": {
+                        "plan_lint": "passed",
+                        "inline_checks": {
+                            name: {"status": "passed", "evidence": ["fixture evidence"]}
+                            for name in (
+                                "ac_task_test_mapping",
+                                "external_dependencies",
+                                "task_dependencies",
+                                "task_executability",
+                                "risk_classification",
+                            )
+                        },
+                        "review": None,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return plan
+
+    def test_preflight_fails_closed_when_dashboard_is_unavailable(self) -> None:
+        self.assertTrue(hasattr(self.state, "run_preflight"), "缺少 preflight 硬门")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=OSError("connection refused")
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "观察板"):
+                self.state.run_preflight(self.project, "handoff-work")
+
+    def test_preflight_rejects_project_or_work_mismatch(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        payload = self.dashboard_payload()
+        payload["healthz"]["work"] = "another-work"
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "project/work"):
+                self.state.run_preflight(self.project, "handoff-work")
+
+    def test_preflight_fails_closed_without_initialized_cosh_work(self) -> None:
+        with self.assertRaisesRegex(self.state.CoshHammerError, "launch"):
+            self.state.run_preflight(self.project, "missing-cosh-work")
+
+    def test_verify_handoff_blocks_plan_missing_cosh_trigger(self) -> None:
+        self.assertTrue(hasattr(self.state, "verify_handoff"), "缺少 Plan→Execute 硬门")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        self.write_ready_plan(self.project, include_trigger=False)
+        payload = self.dashboard_payload()
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "触发语句"):
+                self.state.verify_handoff(self.project, "handoff-work")
+
+    def test_verify_handoff_rejects_incomplete_plan_ready_evidence(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        self.write_ready_plan(self.project)
+        handoff = self.project / ".hammer" / "plan" / "handoff.json"
+        value = json.loads(handoff.read_text(encoding="utf-8"))
+        value["evidence"] = {"plan_lint": "passed"}
+        handoff.write_text(json.dumps(value), encoding="utf-8")
+        payload = self.dashboard_payload()
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "evidence"):
+                self.state.verify_handoff(self.project, "handoff-work")
+
+    def test_verify_handoff_follows_registered_hammer_worktree(self) -> None:
+        self.assertTrue(hasattr(self.state, "verify_handoff"), "缺少 Plan→Execute 硬门")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管迁移后的 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管迁移后的编码任务"},
+            hammer_root=self.hammer_root,
+            worktree_policy="open",
+        )
+        target = self.create_linked_worktree("handoff-target")
+        self.write_ready_plan(target)
+        target_design = target / ".hammer" / "design"
+        target_design.mkdir(parents=True)
+        (target_design / "session.md").write_text(
+            "# Design\n\n- current_stage: complete\n", encoding="utf-8"
+        )
+        design = self.project / ".hammer" / "design"
+        design.mkdir(parents=True, exist_ok=True)
+        (design / "session.md").write_text(
+            "# Design\n\n## 审计日志\n\n"
+            f"- 2026-08-21 10:00:00 +0800 | workspace.worktree decision=migrated_away path={target}\n",
+            encoding="utf-8",
+        )
+        payload = self.dashboard_payload(active_project=target)
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            result = self.state.verify_handoff(self.project, "handoff-work")
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["active_project"], str(target.resolve()))
+        self.assertEqual(result["coding_tasks"], ["Task 1"])
+
+    def test_verify_coding_rejects_execute_task_mismatch(self) -> None:
+        self.assertTrue(hasattr(self.state, "verify_coding"), "缺少编码模式二次验真")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        self.write_ready_plan(self.project)
+        execute = self.project / ".hammer" / "execute"
+        execute.mkdir()
+        (execute / "session.md").write_text(
+            "# Execute\n\n- current_stage: Coding Tasks\n"
+            "- current_task_ref: Task 2\n- next_action: run-step-4\n- blocker: none\n",
+            encoding="utf-8",
+        )
+        payload = self.dashboard_payload()
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "不一致"):
+                self.state.verify_coding(self.project, "handoff-work", "Task 1")
+
+    def test_verify_coding_rejects_stale_dashboard(self) -> None:
+        self.assertTrue(hasattr(self.state, "verify_coding"), "缺少编码模式二次验真")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        self.write_ready_plan(self.project)
+        execute = self.project / ".hammer" / "execute"
+        execute.mkdir()
+        (execute / "session.md").write_text(
+            "# Execute\n\n- current_stage: Coding Tasks\n"
+            "- current_task_ref: Task 1\n- next_action: run-step-4\n- blocker: none\n",
+            encoding="utf-8",
+        )
+        payload = self.dashboard_payload(stale=True)
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "stale"):
+                self.state.verify_coding(self.project, "handoff-work", "Task 1")
+
+    def test_verify_coding_passes_only_for_current_dispatched_task(self) -> None:
+        self.assertTrue(hasattr(self.state, "verify_coding"), "缺少编码模式二次验真")
+        self.state.initialize_launch(
+            self.project,
+            work_id="handoff-work",
+            refined_requirement="接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码任务"},
+            hammer_root=self.hammer_root,
+        )
+        self.write_ready_plan(self.project)
+        execute = self.project / ".hammer" / "execute"
+        execute.mkdir()
+        (execute / "session.md").write_text(
+            "# Execute\n\n- current_stage: Coding Tasks\n"
+            "- current_task_ref: Task 1\n- next_action: run-step-4\n- blocker: none\n",
+            encoding="utf-8",
+        )
+        payload = self.dashboard_payload()
+        with mock.patch.object(
+            self.state, "_dashboard_payload", side_effect=lambda _project, _work, endpoint: payload[endpoint]
+        ):
+            result = self.state.verify_coding(self.project, "handoff-work", "TASK-1")
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["hammer_task"], "Task 1")
+        self.assertEqual(result["next_action"], "run-step-4")
+
+    def test_attach_existing_hammer_initializes_only_cosh_and_reports_plan_repair(self) -> None:
+        self.assertTrue(
+            hasattr(self.state, "attach_existing_hammer"), "缺少迟到接入恢复命令"
+        )
+        self.write_ready_plan(self.project, include_trigger=False)
+        before = self.hammer_snapshot()
+
+        result = self.state.attach_existing_hammer(
+            self.project,
+            work_id="late-attach",
+            refined_requirement="接入已经完成 Plan 的 Hammer 任务。",
+            hammer_root=self.hammer_root,
+        )
+
+        self.assertEqual(before, self.hammer_snapshot())
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["missing_trigger_tasks"], ["Task 1"])
+        self.assertIn("Hammer Plan", result["repair_required"])
+        launch = (
+            self.project
+            / ".cosh"
+            / "hammer-plugin"
+            / "late-attach"
+            / "launch"
+            / "launch.json"
+        )
+        self.assertTrue(launch.is_file())
+
+    def test_state_cli_exposes_all_fail_closed_handoff_commands(self) -> None:
+        parser = self.state.build_parser()
+        common = ["--project", str(self.project), "--work", "handoff-work"]
+
+        self.assertEqual(parser.parse_args(["preflight", *common]).command, "preflight")
+        self.assertEqual(
+            parser.parse_args(["verify-handoff", *common]).command,
+            "verify-handoff",
+        )
+        coding = parser.parse_args(["verify-coding", *common, "--task", "Task 1"])
+        self.assertEqual(coding.task, "Task 1")
+        attached = parser.parse_args(
+            [
+                "attach-existing-hammer",
+                *common,
+                "--requirement",
+                "接入现有 Hammer",
+                "--hammer-root",
+                str(self.hammer_root),
+                "--no-open",
+            ]
+        )
+        self.assertEqual(attached.command, "attach-existing-hammer")
+
     def test_initialize_launch_requires_hammer_and_writes_only_plugin_state(self) -> None:
         before = self.hammer_snapshot()
         launch = self.state.initialize_launch(
@@ -153,6 +515,8 @@ class CoshHammerStateTest(unittest.TestCase):
             "Use $cosh-hammer in coding mode for this Hammer parent task.",
             launch["hammer_prompt"],
         )
+        self.assertIn("verify-handoff", launch["hammer_prompt"])
+        self.assertIn("verify-coding", launch["hammer_prompt"])
         state_root = self.project / ".cosh" / "hammer-plugin" / "order-risk"
         self.assertTrue((state_root / "launch" / "request.md").is_file())
         self.assertTrue((state_root / "launch" / "launch.json").is_file())
@@ -366,6 +730,118 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertNotIn(
             ("cosh", "dashboard/dashboard-state.json"), artifacts
         )
+
+    def test_review_round_outputs_are_classified_and_projected_as_results(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="review-rounds",
+            refined_requirement="展示三路评审结果。",
+            source={"kind": "text", "value": "展示三路评审结果"},
+            hammer_root=self.hammer_root,
+        )
+        round_dir = self.project / ".hammer" / "design" / "reviews" / "2"
+        round_dir.mkdir(parents=True)
+        reports = {
+            "general.md": ("pass", "none", 0, "GEN-1"),
+            "security.md": ("blocked", "P0", 1, "SEC-1"),
+            "stability.md": ("pass", "P2", 0, "none"),
+        }
+        for name, (status, severity, count, unresolved) in reports.items():
+            (round_dir / name).write_text(
+                "---\n"
+                f"status: {status}\n"
+                "review_mode: subagent\n"
+                "review_pass: closure\n"
+                "review_attempt: 2\n"
+                f"blocking_issue_count: {count}\n"
+                f"unresolved_finding_ids: {unresolved}\n"
+                f"max_severity: {severity}\n"
+                "fallback_stage: none\n"
+                "---\n\n# Review\n",
+                encoding="utf-8",
+            )
+        (round_dir / "design.md").write_text("# Review Snapshot\n", encoding="utf-8")
+        (round_dir / "routing.json").write_text(
+            '{"review_attempt":2}\n', encoding="utf-8"
+        )
+
+        status = self.state.build_status(self.project, "review-rounds")
+        artifacts = {
+            item["path"]: item["category"] for item in status["artifacts"]
+        }
+        latest = status["review_results"]["rounds"][0]
+        channels = {item["channel"]: item for item in latest["reports"]}
+
+        self.assertEqual(artifacts["design/reviews/2/security.md"], "review")
+        self.assertEqual(artifacts["design/reviews/2/stability.md"], "review")
+        self.assertEqual(artifacts["design/reviews/2/design.md"], "review")
+        self.assertEqual(artifacts["design/reviews/2/routing.json"], "review")
+        self.assertEqual(status["review_results"]["latest_round"], 2)
+        self.assertEqual(latest["status"], "blocked")
+        self.assertEqual(channels["security"]["status"], "blocked")
+        self.assertEqual(channels["security"]["blocking_issue_count"], 1)
+        self.assertEqual(channels["security"]["max_severity"], "P0")
+        self.assertEqual(channels["security"]["unresolved_finding_ids"], "SEC-1")
+        self.assertEqual(channels["general"]["artifact_path"], "design/reviews/2/general.md")
+
+    def test_progress_marks_plan_as_next_after_review_has_passed(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="progress-marker",
+            refined_requirement="展示当前流程位置。",
+            source={"kind": "text", "value": "展示当前流程位置"},
+            hammer_root=self.hammer_root,
+        )
+        plan = self.project / ".hammer" / "plan"
+        for path in plan.iterdir():
+            path.unlink()
+        plan.rmdir()
+        design = self.project / ".hammer" / "design"
+        design.mkdir(parents=True)
+        (design / "design.md").write_text("# Design\n", encoding="utf-8")
+        for name in ("review.md", "security-review.md", "stability-review.md"):
+            (design / name).write_text("status: passed\n", encoding="utf-8")
+
+        status = self.state.build_status(self.project, "progress-marker")
+        stages = {item["id"]: item for item in status["stages"]}
+
+        self.assertEqual(
+            status["progress"],
+            {
+                "stage_id": "hammer_plan",
+                "label": "Hammer 计划",
+                "marker": "next",
+                "completed": 3,
+                "total": 11,
+                "percent": 27,
+            },
+        )
+        self.assertEqual(stages["hammer_plan"]["progress_marker"], "next")
+        self.assertFalse(
+            any(
+                item.get("progress_marker")
+                for item in status["stages"]
+                if item["id"] != "hammer_plan"
+            )
+        )
+
+    def test_progress_marks_running_hammer_stage_as_current(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="current-progress-marker",
+            refined_requirement="展示当前流程位置。",
+            source={"kind": "text", "value": "展示当前流程位置"},
+            hammer_root=self.hammer_root,
+        )
+
+        status = self.state.build_status(self.project, "current-progress-marker")
+        plan_stage = next(
+            item for item in status["stages"] if item["id"] == "hammer_plan"
+        )
+
+        self.assertEqual(status["progress"]["stage_id"], "hammer_plan")
+        self.assertEqual(status["progress"]["marker"], "current")
+        self.assertEqual(plan_stage["progress_marker"], "current")
 
     def test_artifact_reader_rejects_traversal_and_symlink_escape(self) -> None:
         self.state.initialize_launch(
@@ -598,12 +1074,12 @@ class CoshHammerStateTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        authorized = self.state.apply_control(
-            self.project,
-            "order-risk",
-            {"action": "authorize-task", "task": "P1-S1"},
-        )
-        self.assertEqual(authorized["authorized_task"], "P1-S1")
+        with self.assertRaisesRegex(self.state.CoshHammerError, "Hammer"):
+            self.state.apply_control(
+                self.project,
+                "order-risk",
+                {"action": "authorize-task", "task": "P1-S1"},
+            )
         with self.assertRaises(self.state.CoshHammerError):
             self.state.apply_control(
                 self.project,

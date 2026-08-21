@@ -6,6 +6,9 @@ const tabs = new Set([
 ]);
 let activeTab = tabs.has(params.get("tab")) ? params.get("tab") : "overview";
 let currentData = null;
+let artifactRaw = "";
+let artifactPresentation = null;
+let artifactMode = "rendered";
 
 function api(path, extra = {}) {
   const url = new URL(path, window.location.origin);
@@ -40,6 +43,136 @@ function emptyState(message) {
   return element("div", "empty-state", message);
 }
 
+function appendInline(parent, text) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  text.replace(pattern, (token, _match, offset) => {
+    if (offset > cursor) parent.append(document.createTextNode(text.slice(cursor, offset)));
+    if (token.startsWith("`")) parent.append(element("code", "inline-code", token.slice(1, -1)));
+    else if (token.startsWith("**")) parent.append(element("strong", "", token.slice(2, -2)));
+    else parent.append(element("em", "", token.slice(1, -1)));
+    cursor = offset + token.length;
+    return token;
+  });
+  if (cursor < text.length) parent.append(document.createTextNode(text.slice(cursor)));
+}
+
+function markdownBlock(block) {
+  if (block.type === "heading") {
+    const heading = element(`h${Math.min(6, Math.max(1, block.level))}`, "md-heading");
+    appendInline(heading, block.text);
+    return heading;
+  }
+  if (block.type === "paragraph") {
+    const paragraph = element("p", "md-paragraph");
+    appendInline(paragraph, block.text);
+    return paragraph;
+  }
+  if (block.type === "list") {
+    const list = element(block.ordered ? "ol" : "ul", "md-list");
+    block.items.forEach(item => {
+      const row = element("li");
+      appendInline(row, item);
+      list.append(row);
+    });
+    return list;
+  }
+  if (block.type === "quote") {
+    const quote = element("blockquote", "md-quote");
+    appendInline(quote, block.text);
+    return quote;
+  }
+  if (block.type === "code" || block.type === "frontmatter") {
+    const wrapper = element("div", `md-code ${block.type}`);
+    const label = block.type === "frontmatter" ? "FRONTMATTER" : (block.language || "CODE").toUpperCase();
+    wrapper.append(element("span", "code-language", label));
+    const pre = element("pre");
+    pre.append(element("code", "", block.text));
+    wrapper.append(pre);
+    return wrapper;
+  }
+  if (block.type === "table") {
+    const wrapper = element("div", "md-table-wrap");
+    const table = element("table", "md-table");
+    const head = element("thead");
+    const headRow = element("tr");
+    block.headers.forEach(value => headRow.append(element("th", "", value)));
+    head.append(headRow);
+    const body = element("tbody");
+    block.rows.forEach(values => {
+      const row = element("tr");
+      values.forEach(value => row.append(element("td", "", value)));
+      body.append(row);
+    });
+    table.append(head, body);
+    wrapper.append(table);
+    return wrapper;
+  }
+  if (block.type === "rule") return element("hr", "md-rule");
+  return element("p", "md-paragraph", block.text || "");
+}
+
+function jsonType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function jsonNode(value, key = null, depth = 0) {
+  const type = jsonType(value);
+  if (type === "object" || type === "array") {
+    const entries = type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
+    const details = element("details", `json-branch ${type}`);
+    details.open = depth < 2;
+    const summary = element("summary");
+    if (key !== null) summary.append(element("span", "json-key", String(key)), document.createTextNode(" "));
+    summary.append(
+      element("span", "json-type", type),
+      element("span", "json-count", `${entries.length} ${type === "array" ? "项" : "个字段"}`),
+    );
+    details.append(summary);
+    const children = element("div", "json-children");
+    entries.forEach(([childKey, childValue]) => children.append(jsonNode(childValue, childKey, depth + 1)));
+    details.append(children);
+    return details;
+  }
+  const row = element("div", `json-leaf ${type}`);
+  if (key !== null) row.append(element("span", "json-key", String(key)), document.createTextNode(" "));
+  const display = type === "string" ? `“${value}”` : String(value);
+  row.append(element("span", `json-value ${type}`, display), element("span", "json-type", type));
+  return row;
+}
+
+function renderArtifactContent() {
+  const content = document.querySelector("#artifact-content");
+  content.replaceChildren();
+  content.className = `artifact-content ${artifactMode}`;
+  document.querySelectorAll("[data-artifact-mode]").forEach(button => {
+    button.classList.toggle("active", button.dataset.artifactMode === artifactMode);
+  });
+  if (artifactMode === "raw" || !artifactPresentation) {
+    content.append(element("pre", "raw-content", artifactRaw));
+    return;
+  }
+  if (artifactPresentation.kind === "markdown") {
+    const article = element("article", "markdown-document");
+    artifactPresentation.blocks.forEach(block => article.append(markdownBlock(block)));
+    content.append(article);
+    return;
+  }
+  if (artifactPresentation.kind === "json") {
+    const tree = element("div", "json-tree");
+    tree.append(jsonNode(artifactPresentation.value));
+    content.append(tree);
+    return;
+  }
+  content.append(element("pre", "raw-content", artifactPresentation.content || artifactRaw));
+}
+
+function closeArtifact() {
+  document.querySelector("#artifact-viewer").hidden = true;
+}
+
 async function postControl(command) {
   const response = await fetch(api("/api/control"), {
     method: "POST",
@@ -55,6 +188,10 @@ async function openArtifact(artifact) {
   const content = document.querySelector("#artifact-content");
   document.querySelector("#artifact-owner").textContent = artifact.scope === "hammer" ? "HAMMER 产物" : "COSH 编码产物";
   document.querySelector("#artifact-title").textContent = artifact.path;
+  artifactRaw = "";
+  artifactPresentation = null;
+  artifactMode = "rendered";
+  content.className = "artifact-content loading";
   content.textContent = "正在读取…";
   viewer.hidden = false;
   try {
@@ -62,20 +199,20 @@ async function openArtifact(artifact) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "读取产物失败");
     if (payload.kind === "binary") {
-      content.textContent = `二进制产物 · ${payload.size} bytes，当前仅展示元信息。`;
+      artifactRaw = `二进制产物 · ${payload.size} bytes，当前仅展示元信息。`;
+      artifactPresentation = { kind: "text", content: artifactRaw };
     } else if (payload.kind === "large") {
-      content.textContent = `产物大小 ${payload.size} bytes，超过在线预览上限。`;
-    } else if (artifact.path.endsWith(".json")) {
-      try {
-        content.textContent = JSON.stringify(JSON.parse(payload.content), null, 2);
-      } catch (_error) {
-        content.textContent = payload.content;
-      }
+      artifactRaw = `产物大小 ${payload.size} bytes，超过在线预览上限。`;
+      artifactPresentation = { kind: "text", content: artifactRaw };
     } else {
-      content.textContent = payload.content;
+      artifactRaw = payload.content;
+      artifactPresentation = ArtifactFormatters.present(artifact.path, payload.content);
     }
+    renderArtifactContent();
   } catch (error) {
-    content.textContent = error.message;
+    artifactRaw = error.message;
+    artifactPresentation = { kind: "text", content: error.message };
+    renderArtifactContent();
   }
 }
 
@@ -98,7 +235,17 @@ function artifactList(data, category = null) {
 
 function renderOverview(data) {
   const fragment = document.createDocumentFragment();
-  fragment.append(viewHeader("Hammer 主流程", "Hammer 是唯一状态机；Cosh 只增强编码执行和观察。"));
+  const header = viewHeader("Hammer 主流程", "Hammer 是唯一状态机；Cosh 只增强编码执行和观察。");
+  const progress = data.progress || {};
+  const markerLabels = { current: "当前", next: "下一步", complete: "已完成" };
+  const progressBadge = element("div", `progress-badge ${progress.marker || "next"}`);
+  progressBadge.append(
+    element("span", "progress-kind", markerLabels[progress.marker] || "下一步"),
+    element("strong", "", progress.label || "等待 Hammer 状态"),
+    element("small", "", `${progress.completed || 0} / ${progress.total || data.stages.length}`),
+  );
+  header.append(progressBadge);
+  fragment.append(header);
   const facts = element("dl", "facts");
   addDefinition(facts, "阶段", data.hammer.stage);
   addDefinition(facts, "状态", data.hammer.status);
@@ -110,11 +257,13 @@ function renderOverview(data) {
   const stages = element("div", "stages");
   data.stages.forEach((stage, index) => {
     const known = ["pending", "running", "passed", "blocked", "failed"];
-    const card = element("article", `stage ${known.includes(stage.status) ? stage.status : "pending"}`);
+    const marker = stage.progress_marker || "";
+    const card = element("article", `stage ${known.includes(stage.status) ? stage.status : "pending"} ${marker}`.trim());
     card.append(element("span", "number", String(index + 1).padStart(2, "0")));
     const copy = element("div");
     copy.append(element("h3", "", stage.label), element("p", "", stage.status));
     card.append(copy);
+    if (marker) card.append(element("span", `stage-marker ${marker}`, markerLabels[marker]));
     stages.append(card);
   });
   fragment.append(stages);
@@ -124,6 +273,47 @@ function renderOverview(data) {
 function renderStage(data, title, description, category) {
   const fragment = document.createDocumentFragment();
   fragment.append(viewHeader(title, description), artifactList(data, category));
+  return fragment;
+}
+
+function renderReview(data) {
+  const fragment = document.createDocumentFragment();
+  fragment.append(viewHeader("三路评审", "按 Hammer review round 展示可行性、安全性和稳定性结果。"));
+  const rounds = data.review_results?.rounds || [];
+  if (!rounds.length) {
+    fragment.append(emptyState("Hammer 尚未生成三路评审结果。"));
+  } else {
+    const labels = { general: "可行性 / 一致性", security: "安全性", stability: "稳定性" };
+    rounds.forEach(round => {
+      const section = element("section", "review-round");
+      const heading = element("div", "review-round-heading");
+      heading.append(element("h3", "", `Round ${round.round}`), element("span", `review-status ${round.status}`, round.status));
+      section.append(heading);
+      const grid = element("div", "review-grid");
+      round.reports.forEach(report => {
+        const card = element("article", `review-card ${report.status}`);
+        const top = element("div", "review-card-heading");
+        top.append(element("h3", "", labels[report.channel] || report.channel), element("span", `review-status ${report.status}`, report.status));
+        card.append(top);
+        const facts = element("dl", "review-facts");
+        addDefinition(facts, "最高级别", report.max_severity || "none");
+        addDefinition(facts, "阻塞问题", report.blocking_issue_count === null ? "—" : String(report.blocking_issue_count));
+        addDefinition(facts, "评审方式", [report.review_pass, report.review_mode].filter(Boolean).join(" · ") || "—");
+        addDefinition(facts, "未闭合 Finding", report.unresolved_finding_ids || "none");
+        card.append(facts);
+        if (report.artifact_path) {
+          const open = element("button", "open-review", "查看评审原文");
+          open.type = "button";
+          open.addEventListener("click", () => openArtifact({ scope: "hammer", path: report.artifact_path }));
+          card.append(open);
+        }
+        grid.append(card);
+      });
+      section.append(grid);
+      fragment.append(section);
+    });
+  }
+  fragment.append(element("h3", "section-heading", "全部评审产物"), artifactList(data, "review"));
   return fragment;
 }
 
@@ -184,7 +374,7 @@ function renderView(data) {
     overview: () => renderOverview(data),
     requirement: () => renderStage(data, "需求结论", "Hammer Stage 1 与 Cosh 需求入口产物。", "requirement"),
     design: () => renderStage(data, "技术设计", "Hammer 技术方案、发布与设计阶段证据。", "design"),
-    review: () => renderStage(data, "三路评审", "可行性、安全性和稳定性评审产物。", "review"),
+    review: () => renderReview(data),
     plan: () => renderStage(data, "Hammer 计划", "Hammer 正式计划、会话和交接证据。", "plan"),
     coding: () => renderCoding(data),
     validation: () => renderStage(data, "验证", "远程 UT、CI、CR、E2E 与 Gate 证据。", "validation"),
@@ -221,8 +411,28 @@ document.querySelectorAll("[data-tab]").forEach(button => button.addEventListene
   window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   if (currentData) renderView(currentData);
 }));
-document.querySelector("#close-artifact").addEventListener("click", () => {
-  document.querySelector("#artifact-viewer").hidden = true;
+document.querySelector("#close-artifact").addEventListener("click", closeArtifact);
+document.querySelector("#artifact-viewer").addEventListener("click", event => {
+  if (ArtifactFormatters.isBackdropClick(event.target, event.currentTarget)) closeArtifact();
+});
+document.querySelectorAll("[data-artifact-mode]").forEach(button => {
+  button.addEventListener("click", () => {
+    artifactMode = button.dataset.artifactMode;
+    renderArtifactContent();
+  });
+});
+document.querySelector("#copy-artifact").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  try {
+    await navigator.clipboard.writeText(artifactRaw);
+    button.textContent = "已复制";
+  } catch (_error) {
+    button.textContent = "复制失败";
+  }
+  window.setTimeout(() => { button.textContent = "复制原文"; }, 1200);
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !document.querySelector("#artifact-viewer").hidden) closeArtifact();
 });
 
 refresh().catch(() => {});
