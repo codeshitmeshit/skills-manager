@@ -153,17 +153,22 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             },
         )
 
-    def write_workflow(self, mode: str = "single", engine: str = "superpowers") -> None:
-        self.write_json(
-            self.work / "workflow.json",
-            {
-                "work": self.work_id,
-                "mode": mode,
-                "engine": engine,
-                "state_version": 1,
-                "updated_at": "2026-08-02T10:00:00+08:00",
-            },
-        )
+    def write_workflow(
+        self,
+        mode: str = "single",
+        engine: str = "superpowers",
+        validation_strategy: str | None = "per_task",
+    ) -> None:
+        payload = {
+            "work": self.work_id,
+            "mode": mode,
+            "engine": engine,
+            "state_version": 1,
+            "updated_at": "2026-08-02T10:00:00+08:00",
+        }
+        if validation_strategy is not None:
+            payload["validation_strategy"] = validation_strategy
+        self.write_json(self.work / "workflow.json", payload)
 
     def current_binding(self) -> dict:
         source = json.loads((self.work / "source.json").read_text(encoding="utf-8"))
@@ -884,6 +889,406 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
                 commit_type="feat",
                 summary="增加内部重试判断",
             )
+
+    def test_final_validation_strategy_checkpoints_staged_code_and_test_without_task_ut_cr(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写失败测试**
+- [ ] **Step 2: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk_test.go", "package order\n")
+        self.stage_file("internal/order/risk.go", "package order\n")
+
+        before = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(before["validation_strategy"], "final")
+        self.assertTrue(before["current_task"]["can_advance"])
+        self.assertFalse(before["current_task"]["remote_ut_passed"])
+        self.assertFalse(before["current_task"]["cr_passed"])
+        self.assertNotIn("远程 UT", " ".join(before["current_task"]["advance_blockers"]))
+        self.assertNotIn("CR 尚未通过", " ".join(before["current_task"]["advance_blockers"]))
+
+        result = TASKS.advance_task(
+            self.root,
+            self.work_id,
+            expected_version=before["version"],
+            expected_task=1,
+            commit_type="feat",
+            summary="增加重试保护",
+        )
+
+        evidence = json.loads(
+            (self.work / "evidence" / "commit-task1.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["completed_task"], 1)
+        self.assertEqual(evidence["validation_strategy"], "final")
+        self.assertEqual(evidence["validation_status"], "pending_final")
+        self.assertEqual(
+            evidence["staged_files"],
+            ["internal/order/risk.go", "internal/order/risk_test.go"],
+        )
+
+    def test_final_validation_strategy_requires_planned_test_in_staged_delivery(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写失败测试**
+- [ ] **Step 2: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertFalse(status["current_task"]["can_advance"])
+        self.assertIn(
+            "测试文件尚未暂存",
+            " ".join(status["current_task"]["advance_blockers"]),
+        )
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "测试文件尚未暂存"):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=status["version"],
+                expected_task=1,
+                commit_type="feat",
+                summary="增加重试保护",
+            )
+
+    def test_final_validation_strategy_rejects_task_without_planned_test_file(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertFalse(status["current_task"]["can_advance"])
+        self.assertIn(
+            "计划未声明测试文件",
+            " ".join(status["current_task"]["advance_blockers"]),
+        )
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "计划未声明测试文件"):
+            TASKS.advance_task(
+                self.root,
+                self.work_id,
+                expected_version=status["version"],
+                expected_task=1,
+                commit_type="feat",
+                summary="增加重试保护",
+            )
+
+    def test_missing_validation_strategy_defaults_to_final(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy=None)
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写失败测试**
+"""
+        )
+        self.write_global_prerequisites(plan)
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["validation_strategy"], "final")
+        self.assertFalse(status["validation_strategy_locked"])
+
+    def test_legacy_completed_work_without_strategy_stays_per_task(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy=None)
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [x] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-q",
+                "-m",
+                "feat: 增加重试保护",
+                "-m",
+                f"{self.work_id}-task1",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {"status": "passed", "task": 1, "commit_sha": self.git_head()},
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertEqual(status["validation_strategy"], "per_task")
+        self.assertTrue(status["validation_strategy_locked"])
+
+    def test_checkpoint_strategy_is_authoritative_over_mutated_workflow(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [x] **Step 1: 实现保护**
+### Task 2: 补充审计
+**Files:**
+- Modify: `internal/order/audit.go`
+- Test: `internal/order/audit_test.go`
+**Interfaces:**
+- Produces: `recordAudit() error`
+- [ ] **Step 1: 补充审计**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-q",
+                "-m",
+                "feat: 增加重试保护",
+                "-m",
+                f"{self.work_id}-task1",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {
+                "status": "passed",
+                "task": 1,
+                "commit_sha": self.git_head(),
+                "validation_strategy": "per_task",
+            },
+        )
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "验证策略.*已提交"):
+            TASKS.project_task_status(self.root, self.work_id)
+
+    def test_malformed_checkpoint_evidence_fails_closed(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        (self.work / "evidence" / "commit-task1.json").write_text(
+            "{broken", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "commit-task1.json"):
+            TASKS.project_task_status(self.root, self.work_id)
+
+    def test_semantically_invalid_checkpoint_evidence_fails_closed(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.write_json(
+            self.work / "evidence" / "commit-task1.json",
+            {
+                "status": "pending",
+                "task": 1,
+                "commit_sha": self.git_head(),
+                "validation_strategy": "final",
+            },
+        )
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "commit-task1.json"):
+            TASKS.project_task_status(self.root, self.work_id)
+
+    def test_checkpoint_commit_missing_evidence_fails_closed(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-q",
+                "-m",
+                "feat: 增加重试保护",
+                "-m",
+                f"{self.work_id}-task1",
+            ],
+            cwd=self.root,
+            check=True,
+        )
+
+        with self.assertRaisesRegex(TASKS.TaskControlConflict, "缺少提交证据.*Task 1"):
+            TASKS.project_task_status(self.root, self.work_id)
+
+    def test_final_strategy_uses_explicit_test_role_not_file_name(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/checker.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写测试**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        self.stage_file("internal/order/checker.go", "package order\n")
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertTrue(status["current_task"]["can_advance"])
+        self.assertEqual(
+            status["current_task"]["required_test_files"],
+            ["internal/order/checker.go"],
+        )
+
+    def test_final_strategy_does_not_treat_modify_test_directory_as_test_role(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Modify: `internal/test/runner.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        self.stage_file("internal/test/runner.go", "package test\n")
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertFalse(status["current_task"]["can_advance"])
+        self.assertIn(
+            "计划未声明测试文件",
+            " ".join(status["current_task"]["advance_blockers"]),
+        )
+
+    def test_final_strategy_rejects_deleted_test_delivery(self) -> None:
+        self.initialize_git()
+        test_path = self.root / "internal/order/risk_test.go"
+        test_path.parent.mkdir(parents=True, exist_ok=True)
+        test_path.write_text("package order\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", "internal/order/risk_test.go"], cwd=self.root, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "test: add baseline"],
+            cwd=self.root,
+            check=True,
+        )
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写测试**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        subprocess.run(
+            ["git", "rm", "-q", "internal/order/risk_test.go"],
+            cwd=self.root,
+            check=True,
+        )
+
+        status = WORKFLOW.build_status(self.root, self.work_id)
+
+        self.assertFalse(status["current_task"]["can_advance"])
+        self.assertIn(
+            "测试文件不能以删除状态交付",
+            " ".join(status["current_task"]["advance_blockers"]),
+        )
 
     def test_implementation_spec_amendment_overlays_current_task_without_rebuilding_plan(self) -> None:
         self.initialize_git()
@@ -1811,6 +2216,63 @@ class BytedSuperpowersWorkflowStateTest(unittest.TestCase):
             "continuous",
         )
 
+    def test_validation_strategy_persists_and_locks_after_first_checkpoint(self) -> None:
+        self.initialize_git()
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写失败测试**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        before = WORKFLOW.build_status(self.root, self.work_id)
+        selected = SERVER.apply_control(
+            self.root,
+            {
+                "action": "set-validation-strategy",
+                "work": self.work_id,
+                "validation_strategy": "final",
+                "expected_version": before["version"],
+                "idempotency_key": "validation-final",
+            },
+        )
+        workflow = json.loads(
+            (self.work / "workflow.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(selected["validation_strategy"], "final")
+        self.assertEqual(workflow["validation_strategy"], "final")
+
+        self.stage_file("internal/order/risk.go", "package order\n")
+        self.stage_file("internal/order/risk_test.go", "package order\n")
+        TASKS.advance_task(
+            self.root,
+            self.work_id,
+            expected_version=selected["version"],
+            expected_task=1,
+            commit_type="feat",
+            summary="增加重试保护",
+        )
+        checkpointed = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertTrue(checkpointed["validation_strategy_locked"])
+        with self.assertRaisesRegex(
+            SERVER.workflow_state.DashboardError, "首个 Task 已提交"
+        ):
+            SERVER.apply_control(
+                self.root,
+                {
+                    "action": "set-validation-strategy",
+                    "work": self.work_id,
+                    "validation_strategy": "per_task",
+                    "expected_version": checkpointed["version"],
+                    "idempotency_key": "validation-per-task-too-late",
+                },
+            )
+
     def test_non_p0_finding_can_be_waived_with_required_reason(self) -> None:
         self.write_complete_review_round()
         review_path = self.work / "reviews" / "round-001-security.json"
@@ -2397,6 +2859,45 @@ console.log(JSON.stringify({ spec: renderDocumentTab(data, "spec"), tasks: rende
         self.assertIn("updated-scope.go", rendered["tasks"])
         self.assertNotIn("重新生成", rendered["spec"])
 
+    def test_tasks_render_global_validation_strategy_and_checkpoint_state(self) -> None:
+        javascript = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        runner = (
+            """
+const appNode = { innerHTML: "" };
+globalThis.document = { querySelector: selector => selector === "#app" ? appNode : null, querySelectorAll: () => [] };
+globalThis.window = { location: new URL("file:///dashboard/index.html?tab=tasks"), history: { replaceState: () => {} } };
+"""
+            + javascript
+            + """
+const configurable = { ...sampleData, validation_strategy: "final", validation_strategy_locked: false };
+const checkpointed = {
+  ...configurable,
+  validation_strategy_locked: true,
+  current_task: null,
+  tasks: sampleData.tasks.map((task, index) => index === 0 ? { ...task, status: "completed", validation_status: "pending_final" } : task),
+};
+const validated = {
+  ...checkpointed,
+  stages: { ...sampleData.stages, remote_ut: { status: "passed" }, final_review: { status: "passed" } },
+};
+console.log(JSON.stringify({ configurable: renderTasks(configurable), checkpointed: renderTasks(checkpointed), validated: renderTasks(validated) }));
+"""
+        )
+        result = subprocess.run(
+            ["node", "-"], input=runner, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertIn("先编写测试文件，所有 Task 结束后统一测试", rendered["configurable"])
+        self.assertIn('data-validation-strategy="final"', rendered["configurable"])
+        self.assertIn("已实现，待统一验证", rendered["checkpointed"])
+        self.assertIn("已验证", rendered["validated"])
+        self.assertNotIn("已实现，待统一验证", rendered["validated"])
+        self.assertIn("首个 Task 已提交，验证策略已锁定", rendered["checkpointed"])
+        self.assertIn('data-validation-strategy="per_task" disabled', rendered["checkpointed"])
+
     def test_archive_is_local_gitignored_and_evidence_based(self) -> None:
         self.write_json(
             self.work / "evidence" / "conversation.json",
@@ -2578,6 +3079,48 @@ console.log(JSON.stringify({ spec: renderDocumentTab(data, "spec"), tasks: rende
         self.assertEqual(status["stages"]["remote_ut"]["status"], "blocked")
         self.assertFalse(status["stages"]["push"]["can_advance"])
         self.assertIn("代码 SHA", " ".join(status["stages"]["remote_ut"]["blockers"]))
+
+    def test_final_strategy_runs_aggregate_ut_and_cr_only_after_all_checkpoints(self) -> None:
+        self.initialize_git()
+        self.write_workflow(validation_strategy="final")
+        plan = self.write_plan(
+            """
+### Task 1: 增加重试保护
+**Files:**
+- Modify: `internal/order/risk.go`
+- Test: `internal/order/risk_test.go`
+**Interfaces:**
+- Produces: `shouldSkip(scene RiskScene) bool`
+- [ ] **Step 1: 先编写失败测试**
+- [ ] **Step 2: 实现保护**
+"""
+        )
+        self.write_global_prerequisites(plan)
+        self.stage_file("internal/order/risk.go", "package order\n")
+        self.stage_file("internal/order/risk_test.go", "package order\n")
+        before = WORKFLOW.build_status(self.root, self.work_id)
+        TASKS.advance_task(
+            self.root,
+            self.work_id,
+            expected_version=before["version"],
+            expected_task=1,
+            commit_type="feat",
+            summary="增加重试保护",
+        )
+
+        pending = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(pending["stages"]["implementation"]["status"], "passed")
+        self.assertEqual(pending["stages"]["remote_ut"]["status"], "blocked")
+        self.assertEqual(pending["stages"]["final_review"]["status"], "blocked")
+        self.assertFalse(pending["stages"]["push"]["can_advance"])
+
+        head = self.git_head()
+        self.write_final_remote_ut(head)
+        self.write_final_review(head)
+        ready = WORKFLOW.build_status(self.root, self.work_id)
+        self.assertEqual(ready["stages"]["remote_ut"]["status"], "passed")
+        self.assertEqual(ready["stages"]["final_review"]["status"], "passed")
+        self.assertTrue(ready["stages"]["push"]["can_advance"])
 
     def test_prepare_only_remote_ut_cannot_pass(self) -> None:
         head = self.prepare_completed_implementation()

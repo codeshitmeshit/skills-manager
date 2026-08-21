@@ -17,7 +17,7 @@
 3. 从修正后规格生成当前 Task 的完整有效覆盖，包含标题、允许文件、接口、步骤和验收条件；未变化字段也必须保留，禁止只写局部增量造成隐式继承。
 4. 写入 `evidence/spec-amendment-task<N>.json`。同一 Task 再次修正规格时压缩更新同一文件：保留该 Task 首次进入修正时的 `base_spec_sha256`，把 `amended_spec_sha256`、完整 diff 和任务覆盖更新到最新状态；后续 Task 的新修正以上一有效规格 SHA 为基线形成链。
 5. 将规格文件与当前 Task 代码一起暂存和提交。原 `spec.json`、`location.json`、`plan.json` 及 Superpowers plan 保持不变。
-6. 使用附加修正后的 Task 范围检查 staged、unstaged、untracked；重新运行当前 Task 的远程 UT 和 CR。
+6. 使用附加修正后的 Task 范围检查 staged、unstaged、untracked。`per_task` 策略重新运行当前 Task 的远程 UT 和 CR；`final` 策略重新确认测试文件交付，统一验证绑定最终累计 HEAD。
 
 ## 证据结构
 
@@ -34,6 +34,7 @@
   "task_override": {
     "title": "<修正后的当前 Task 标题>",
     "allowed_files": ["<完整有效文件范围>"],
+    "test_files": ["<完整有效测试交付物>"],
     "interfaces": ["<完整有效接口契约>"],
     "steps": ["<完整有效实施步骤>"],
     "acceptance_criteria": ["<完整有效验收条件>"]
@@ -44,6 +45,8 @@
 
 当前 Task 首次修正时，`base_spec_sha256` 取修正链此前最后一个有效 SHA；没有历史修正时取 `spec.json.sha256`。同一 Task 后续修正必须保持这个基线不变，并重新记录从该基线到最新正文的完整 diff。`base_plan_sha256` 始终绑定未重建的原计划。
 
+`task_override.test_files` 显式表示修正后的测试交付物，每个路径必须同时属于 `allowed_files`。省略时仅继承原 Task 中仍属于新文件范围的 `Test:` 条目；如果修正新增、删除或替换测试交付物，必须显式写入该字段。
+
 ## 门禁行为
 
 - 规格内容变化但缺少有效附加修正：规格、定位、计划和实施保持阻塞，修复提示为“同步当前 Task 规格附加修正”，不得提示自动重新生成。
@@ -51,4 +54,4 @@
 - 历史 Task 的附加修正持续构成有效规格链，但不得覆盖后续 Task。
 - 当前 Task 已提交、等待下一 Task 授权或最后一个 Task 已完成时，历史修正链仍持续有效。此时出现未归属的新规格改动，先要求明确修正归属，不得回退为“重新生成”。
 - 附加修正、规格文件、原规格 SHA、原计划 SHA、Task 编号或修正链不匹配时 `fail closed`。
-- 附加修正改变任务快照，当前 Task 既有远程 UT 和 CR 自动失效；规格文件未完整暂存时不得提交或推进。
+- 附加修正改变任务快照：`per_task` 策略下当前 Task 既有远程 UT 和 CR 自动失效；`final` 策略下最终累计 HEAD 的旧验证证据失效。规格文件未完整暂存时不得提交或推进。

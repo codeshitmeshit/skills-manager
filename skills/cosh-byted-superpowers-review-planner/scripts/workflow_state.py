@@ -1089,6 +1089,8 @@ def build_status(project_root: Path, work_id: str | None = None) -> dict[str, An
         "source": source,
         "revision_assessment": revision_assessment,
         "mode": workflow.get("mode", "single"),
+        "validation_strategy": workflow.get("validation_strategy", "final"),
+        "validation_strategy_locked": bool(task_projection.get("tasks_done")),
         "version": _state_version(work_dir),
         "stages": stages,
         "knowledge_gate": {

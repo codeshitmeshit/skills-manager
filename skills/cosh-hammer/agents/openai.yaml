@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cosh Hammer"
+  short_description: "用独立编码插件与观察板接入 Hammer 主流程"
+  default_prompt: "Use $cosh-hammer to refine this requirement, start the Cosh dashboard, and run it through Hammer without modifying Hammer."

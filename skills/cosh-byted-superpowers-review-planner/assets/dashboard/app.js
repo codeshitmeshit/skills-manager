@@ -275,7 +275,19 @@ function modeControl(data) {
   return `<div class="mode-control"><div><p class="eyebrow">推进方式</p><strong>${data.mode === "continuous" ? "连续推进" : "逐一任务校验"}</strong></div><div class="segmented"><button data-mode="single" ${disabled} class="${data.mode === "single" ? "active" : ""}">逐一任务校验</button><button data-mode="continuous" ${disabled} class="${data.mode === "continuous" ? "active" : ""}">连续推进</button></div></div>`;
 }
 
+function validationStrategyControl(data) {
+  const strategy = data.validation_strategy || "final";
+  const locked = data.validation_strategy_locked === true;
+  const disabled = data.stale || locked ? "disabled" : "";
+  const label = strategy === "per_task"
+    ? "每个 Task 完成后立即测试"
+    : "先编写测试文件，所有 Task 结束后统一测试";
+  const lockNote = locked ? "首个 Task 已提交，验证策略已锁定" : "策略将在首个 Task 提交后锁定";
+  return `<div class="validation-strategy-control"><div><p class="eyebrow">全局验证策略</p><strong>${label}</strong><small>${lockNote}</small></div><div class="segmented validation-strategy-options"><button data-validation-strategy="final" ${disabled} class="${strategy === "final" ? "active" : ""}">全部 Task 结束后统一测试</button><button data-validation-strategy="per_task" ${disabled} class="${strategy === "per_task" ? "active" : ""}">每个 Task 立即测试</button></div></div>`;
+}
+
 function renderTasks(data) {
+  const finalValidationPassed = data.stages?.remote_ut?.status === "passed" && data.stages?.final_review?.status === "passed";
   const approval = data.awaiting_approval_task
     ? `<div class="task-approval-waiting"><strong>Task ${escapeHtml(data.awaiting_approval_task)} 等待用户明确授权</strong>${data.approval_blockers?.length ? `<ul>${data.approval_blockers.map(blocker => `<li>${escapeHtml(blocker)}</li>`).join("")}</ul>` : ""}${data.can_authorize && !data.stale ? `<button id="authorize-next" class="advance-button">授权 Task ${escapeHtml(data.awaiting_approval_task)}</button>` : ""}</div>`
     : "";
@@ -283,7 +295,9 @@ function renderTasks(data) {
     const current = data.current_task?.number === task.number;
     const displayedTask = current ? data.current_task : task;
     const stateLabel = task.status === "completed"
-      ? "已完成"
+      ? data.validation_strategy === "final" && task.validation_status === "pending_final"
+        ? finalValidationPassed ? "已验证" : "已实现，待统一验证"
+        : "已完成"
       : task.status === "current"
         ? "当前任务"
         : task.status === "locked"
@@ -300,7 +314,7 @@ function renderTasks(data) {
       : "";
     return `<article class="task-row ${escapeHtml(task.status)}"><span class="task-index">TASK ${task.number}</span><div><strong>${escapeHtml(displayedTask.title)}</strong><small>${(displayedTask.allowed_files || []).map(escapeHtml).join(" · ")}</small>${amendment}</div>${advance}${blockers}</article>`;
   }).join("") || '<p class="empty">尚未生成实施子任务</p>';
-  return `<section class="panel task-panel">${modeControl(data)}<p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p>${approval}<div class="task-list">${rows}</div></section>`;
+  return `<section class="panel task-panel">${modeControl(data)}${validationStrategyControl(data)}<p class="feedback" aria-live="polite">${escapeHtml(feedback)}</p>${approval}<div class="task-list">${rows}</div></section>`;
 }
 
 function render(data) {
@@ -322,6 +336,9 @@ function bindInteractions(data, tab) {
   });
   document.querySelectorAll("[data-mode]").forEach(button => button.addEventListener("click", () => {
     if (button.dataset.mode !== data.mode) updateControl(data, "set-mode", { mode: button.dataset.mode });
+  }));
+  document.querySelectorAll("[data-validation-strategy]").forEach(button => button.addEventListener("click", () => {
+    if (button.dataset.validationStrategy !== data.validation_strategy) updateControl(data, "set-validation-strategy", { validation_strategy: button.dataset.validationStrategy });
   }));
   document.querySelector("#advance-next")?.addEventListener("click", () => {
     const task = data.current_task;

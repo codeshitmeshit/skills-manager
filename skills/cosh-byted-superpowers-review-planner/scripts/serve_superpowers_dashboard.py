@@ -247,6 +247,39 @@ def _set_mode(
     return build_status(project_root, work_id)
 
 
+def _set_validation_strategy(
+    project_root: Path,
+    work_id: str,
+    expected_version: str,
+    validation_strategy: str,
+) -> dict[str, Any]:
+    if validation_strategy not in {"final", "per_task"}:
+        raise workflow_state.DashboardError(
+            "验证策略必须是 final 或 per_task"
+        )
+    before = workflow_state.build_status(project_root, work_id)
+    if before["version"] != expected_version:
+        raise workflow_state.DashboardConflict("开发任务状态已经变化，请刷新后重试")
+    if int(before.get("tasks_done") or 0) > 0:
+        raise workflow_state.DashboardError("首个 Task 已提交，验证策略已锁定")
+    work_dir = workflow_state.resolve_work(project_root, work_id)
+    path = work_dir / "workflow.json"
+    try:
+        workflow = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise workflow_state.DashboardError(f"workflow.json 不可读：{error}") from error
+    workflow["validation_strategy"] = validation_strategy
+    workflow["state_version"] = int(workflow.get("state_version", 0)) + 1
+    workflow["updated_at"] = _iso_now()
+    _atomic_write_json(path, workflow)
+    LOGGER.info(
+        "验证策略已更新：work=%s validation_strategy=%s",
+        work_id,
+        validation_strategy,
+    )
+    return build_status(project_root, work_id)
+
+
 def _request_source_revision(
     project_root: Path, work_id: str, expected_version: str
 ) -> dict[str, Any]:
@@ -396,6 +429,13 @@ def _apply_control_locked(
 
     if action == "set-mode":
         _set_mode(project_root, work_id, expected_version, str(payload.get("mode")))
+    elif action == "set-validation-strategy":
+        _set_validation_strategy(
+            project_root,
+            work_id,
+            expected_version,
+            str(payload.get("validation_strategy")),
+        )
     elif action == "advance-next":
         task_number = payload.get("expected_task")
         if not isinstance(task_number, int):

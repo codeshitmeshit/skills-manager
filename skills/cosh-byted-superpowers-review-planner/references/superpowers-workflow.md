@@ -65,11 +65,16 @@ docs/superpowers/plans/YYYY-MM-DD-<work>.md
 
 一次只允许开发一个实施子任务。Task 1 初始授权；后续任务必须由 `control.json.task_authorization.authorized_task` 明确授权。当前任务的文件、符号、变量和接口形成范围锁；每次写入前读取授权，写入后检查 staged、unstaged、untracked 全工作区。范围外或未授权任务改动立即阻塞，不能先保留改动再继续其他任务。
 
-当前 CR 未通过时，修复仍属于当前任务，重新执行远程 UT 和 CR。页面的“推进下一个任务”只在完整工作区快照满足范围、全部改动已暂存且远程 UT 与 CR 均匹配时启用；置灰时必须展示全部 blocker。用户当轮明确触发推进后，后端提交当前任务并原子记录下一任务授权。Agent 不得自行调用推进动作，也不得用历史“继续全部任务”等话术替代本轮授权。
+Tasks 全局设置把验证策略持久化到 `workflow.json.validation_strategy`：
+
+- `final`（默认）：每个 Task 的计划必须用 `- Test: \`<path>\`` 显式声明测试交付物，不根据目录或文件名猜测。全部 `Test:` 文件必须与实现一起暂存，且不得以删除状态交付。推进不要求逐 Task 远程 UT/CR；commit 记录暂存文件清单和 `validation_status=pending_final`。全部 Task checkpoint 后统一验证累计 HEAD。
+- `per_task`：保持逐 Task 远程 UT 和 CR，证据必须绑定当前任务快照，随后才能提交。
+
+首个 Task 提交后验证策略锁定；`commit-taskN.json.validation_strategy` 是权威锁定证据，并必须与 Git 历史中 `<work-id>-taskN` checkpoint trailer 双向对账。与 `workflow.json` 冲突、checkpoint 之间不一致、commit 不可解析、证据损坏或删除时必须 `fail closed`。历史 checkpoint 没有该字段时按 `per_task` 兼容。页面的“推进下一个任务”只在完整工作区快照满足范围、全部交付物已暂存且满足所选验证策略时启用；置灰时必须展示全部 blocker。用户当轮明确触发推进后，后端只提交当前暂存区交付物并原子记录下一任务授权。Agent 不得自行调用推进动作，也不得用历史“继续全部任务”等话术替代本轮授权。
 
 ### 连续推进
 
-连续模式必须由用户显式切换，只取消人工点击等待。范围锁、全工作区校验、远程 UT、CR、提交和异常停止仍逐任务执行；页面不得渲染“推进下一个任务”按钮。
+连续模式必须由用户显式切换，只取消人工点击等待。范围锁、全工作区校验、测试文件交付、提交和异常停止仍逐任务执行；远程 UT/CR 的时机服从全局验证策略，页面不得渲染“推进下一个任务”按钮。
 
 ## 提交、测试与 Push
 
@@ -89,7 +94,7 @@ feat: 增加内部重试风险判断
 optimize-order-risk-check-task1
 ```
 
-推进前校验暂存区没有范围外文件；存在规格附加修正时同时校验规格文件已完整暂存。远程 UT 与 CR 绑定包含有效规格修正链的当前任务快照。完整远程 UT 和最终 CR 绑定当前 HEAD 并通过后，才允许普通 push。
+推进前校验暂存区非空且没有范围外文件；存在规格附加修正时同时校验规格文件已完整暂存。`final` 策略还必须确认当前 Task 计划声明的全部测试文件均在暂存区，checkpoint 只代表“已实现，待统一验证”。`per_task` 策略的远程 UT 与 CR 绑定包含有效规格修正链的当前任务快照。无论采用哪种策略，完整远程 UT 和最终 CR 都必须绑定全部 Task 完成后的当前 HEAD 并通过，才允许普通 push。
 
 ## 本地归档
 

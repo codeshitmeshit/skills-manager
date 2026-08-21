@@ -37,7 +37,7 @@
 - 本次远程范围与 task 修改面对应。
 - 结果证据绑定当前代码 SHA；代码变化后旧证据立即失效。
 
-开发阶段按 `file -> package -> directory` 逐步扩大远程范围，使用 `TEST_FILES`、`TEST_PACKAGE_PATH`、`TEST_DIRECTORY` 和 `PATTERN` 精确定位。Task 完成前至少覆盖全部受影响 package；全部 tasks 完成和最终测试确认前运行默认远程 pipeline。若存量失败阻塞全量结果，必须用远程报告区分基线失败与本次回归，不能改跑本地测试绕过。
+`validation_strategy=per_task` 时，开发阶段按 `file -> package -> directory` 逐步扩大远程范围，使用 `TEST_FILES`、`TEST_PACKAGE_PATH`、`TEST_DIRECTORY` 和 `PATTERN` 精确定位，Task 完成前至少覆盖全部受影响 package。`validation_strategy=final` 时，每个 Task 先编写并提交计划声明的测试文件，不运行逐 Task 远程 UT；全部 Task checkpoint 后对累计 HEAD 运行默认远程 pipeline。若存量失败阻塞全量结果，必须用远程报告区分基线失败与本次回归，不能改跑本地测试绕过。
 
 ## 远程结果判定
 

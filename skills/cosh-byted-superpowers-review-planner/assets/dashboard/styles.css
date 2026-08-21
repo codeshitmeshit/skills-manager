@@ -81,7 +81,7 @@ h2, h3, p { margin-top: 0; }
 .stage-detail-row dd { margin: 0; overflow-wrap: anywhere; }
 .stage-detail-row.blocker dd { color: var(--red); }
 .stage-detail-row.fix dd { color: var(--blue); }
-.section-title, .mode-control { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.section-title, .mode-control, .validation-strategy-control { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .knowledge-mode { color: var(--blue); border: 1px solid #35517d; border-radius: 999px; padding: 7px 12px; }
 .revision-decision { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font-weight: 750; }
 .revision-decision.inherited { color: var(--green); border-color: rgba(108, 222, 179, .42); }
@@ -126,6 +126,10 @@ code, pre { font-family: "SFMono-Regular", Consolas, monospace; color: #a9c4ff; 
 .document-heading span { color: var(--green); }
 pre { margin: 0; padding: 24px; white-space: pre-wrap; overflow: auto; }
 .mode-control { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.validation-strategy-control { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.validation-strategy-control > div:first-child { display: grid; gap: 6px; }
+.validation-strategy-control small { color: var(--muted); }
+.validation-strategy-options { max-width: 720px; }
 .segmented { display: flex; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: #0b111a; }
 .segmented button { padding: 10px 14px; border-radius: 8px; color: var(--muted); background: transparent; }
 .segmented button.active { color: var(--text); background: #315087; }
@@ -153,7 +157,7 @@ pre { margin: 0; padding: 24px; white-space: pre-wrap; overflow: auto; }
 
 @media (max-width: 900px) {
   #app { width: min(100% - 24px, 720px); }
-  .top, .hero, .section-title, .mode-control { display: grid; }
+  .top, .hero, .section-title, .mode-control, .validation-strategy-control { display: grid; }
   .connection { text-align: left; }
   .main-nav { overflow-x: auto; }
   .nav-link { white-space: nowrap; }

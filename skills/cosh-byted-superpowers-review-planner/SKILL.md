@@ -52,7 +52,8 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 核心业务逻辑添加解释原因和边界的中文注释；关键状态、异常和外部调用复用现有日志体系，禁止泄露敏感数据。
 - 业务 UT 禁止本地运行，只能使用 `bits-remote-ut`。禁止调用 Hammer、`hammer-*` 或 `test-remote-ut`。
 - 全量远程 UT 与最终 CR 必须关联当前 HEAD 并通过，才允许普通 `git push`。不得自动调用 `$cosh-before-push`。
-- 连续推进只能取消人工等待，不能跳过范围校验、远程 UT、CR、提交或任何全局门禁。
+- Tasks 全局验证策略默认 `validation_strategy=final`：每个 Task 先提交代码与计划中以 `Test:` 显式声明的测试文件，全部 Task 结束后统一执行完整远程 UT 和最终 CR。用户可在首个 Task 提交前改为 `per_task`；首个 Task 提交后以 checkpoint 证据中的策略为权威锁定值，禁止中途切换绕过门禁。
+- 连续推进只能取消人工等待，不能跳过范围校验、测试文件交付、提交或所选验证策略要求的门禁。
 - `mode=single` 时只有后端 `authorized_task` 指向的任务可以产生代码改动。Task 1 默认授权；后续任务必须由用户当轮明确触发“推进下一个任务”后授权。不得从“继续”“完成全部任务”等历史或宽泛表述推断跨任务授权，Agent 不得代替用户调用推进控制。
 - 任务范围校验覆盖 staged、unstaged、untracked 全工作区，而非只检查暂存区。发现未授权任务或范围外文件后立即停止并标记 `scope_violation`；保留改动等待用户决定不等于允许继续其他任务。
 - 已进入实施阶段后修改 Superpowers 规格，默认自动写成当前 `authorized_task` 的附加修正并覆盖该 Task 的文件、接口、步骤和验收条件；保留原规格、定位和计划基线。只有用户当轮明确要求重新生成 Superpowers 时才重建，Agent 不得因规格 SHA 变化自行调用 `superpowers:brainstorming` 或 `superpowers:writing-plans`。
@@ -71,7 +72,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 7. 用户修改技术文档时生成新版本和 diff，对比冻结文档并写入 `revision-assessment.json`。判断为 `carry-forward` 时继承冻结版本门禁；判断为 `full-review` 或判断证据无效时，从知识门禁重新执行完整评审。循环直到当前版本三路全部通过。
 8. 用户确认评审闭环后，使用 `superpowers:brainstorming` 生成原生规格并完成书面确认。
 9. 再次校验文件、符号、变量和接口定位；规格与代码事实冲突时退回评审。
-10. 使用 `superpowers:writing-plans` 生成原生实施计划，每个实施子任务声明允许修改范围、验证与完成条件。
+10. 使用 `superpowers:writing-plans` 生成原生实施计划，每个实施子任务声明允许修改范围、以 `Test:` 标注测试交付物、验证与完成条件，并把测试编写放在实现步骤之前。
 11. 按推进模式逐个实施子任务；全部完成后执行完整远程 UT、最终 CR、普通 push 和本地归档。
 
 ## 实施子任务
@@ -83,11 +84,11 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 1. 锁定当前任务允许修改的文件、符号、变量和接口。
 2. 每次写入前确认当前任务等于 `authorized_task`；写入后检查 staged、unstaged、untracked 完整 diff。范围外修改立即阻塞，不继续写其他任务。
 3. 实施中修正规格时，按实施期规格附加修正规范立即生成当前 Task 的完整覆盖；规格文件随当前 Task 提交，不修改原计划。修正无法收敛到当前 Task 时停止并询问用户是否重建。
-4. 使用 `bits-remote-ut` 完成当前任务远程 UT。
-5. 远程 UT 通过后完成当前任务 CR；未通过时只修复当前任务并重跑远程 UT 与 CR。规格附加修正后旧 UT/CR 自动失效。
-6. CR 通过后只把当前任务置为可完成；没有用户当轮明确推进动作时，下一任务保持 `locked`。
-7. 用户触发推进时检查全工作区，拒绝范围外、未暂存、空提交或证据过期状态；只提交当前任务范围内的文件及规格附加修正。
-8. 记录 commit SHA 和任务授权审计后关闭当前范围，把 `authorized_task` 原子更新为下一任务；否则进入 `awaiting_approval` 并停止。
+4. `validation_strategy=final` 时，确认计划声明的全部测试文件已经写入并暂存；不运行逐 Task 远程 UT/CR。`validation_strategy=per_task` 时，使用 `bits-remote-ut` 完成当前任务远程 UT，再完成当前任务 CR。
+5. 用户触发推进时检查全工作区，拒绝范围外、未暂存、空提交、缺少测试文件或所选策略证据过期状态；只提交当前任务范围内的暂存文件及规格附加修正。
+6. `final` 策略把 commit 记录为“已实现，待统一验证”；`per_task` 策略记录为已验证。没有用户当轮明确推进动作时，下一任务保持 `locked`。
+7. 记录 commit SHA、暂存文件清单和任务授权审计后关闭当前范围，把 `authorized_task` 原子更新为下一任务；否则进入 `awaiting_approval` 并停止。
+8. 全部 Task checkpoint 完成后，对累计 HEAD 运行一次完整远程 UT 和最终 CR；两者通过前禁止 push。
 
 提交信息固定为：
 
@@ -99,7 +100,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 
 ### 连续推进
 
-记录 `mode=continuous` 后移除“推进下一个任务”的人工等待和页面按钮。每个实施子任务仍独立完成范围校验、远程 UT、CR 和规范提交；失败时立即停止。
+记录 `mode=continuous` 后移除“推进下一个任务”的人工等待和页面按钮。每个实施子任务仍独立完成范围校验、测试文件交付和规范提交；验证时机服从已锁定的全局验证策略，失败时立即停止。
 
 ## 状态与观察板
 
@@ -127,6 +128,7 @@ python3 <skill-root>/scripts/serve_superpowers_dashboard.py \
 - 确认文档修订存在不可变冻结快照与完整差异判断；继承结论时所有语义变化维度均明确为 `false`。
 - 确认计划覆盖规格，实施范围精确到文件、符号和变量。
 - 确认实施期规格变更绑定当前 Task、原规格与原计划哈希，且没有未经用户明确授权重建 Superpowers。
+- 确认验证策略在首个 Task 提交后保持锁定；`final` 策略的每个 Task 都提交计划要求的测试文件，累计 HEAD 的完整远程 UT 与最终 CR 均通过。
 - 确认只使用 BITS 远程 UT，并保留结构化通过证据。
 - 确认每个提交符合中文 Conventional Commits 与任务标识格式。
 - 确认观察板实时更新、自然语言可独立推进、本地归档被 gitignore。

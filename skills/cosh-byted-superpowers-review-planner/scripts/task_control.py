@@ -18,8 +18,11 @@ from typing import Any, Mapping
 LOGGER = logging.getLogger("byted-superpowers-task-control")
 
 ALLOWED_COMMIT_TYPES = {"feat", "fix", "refactor", "test", "docs", "chore"}
+VALIDATION_STRATEGIES = {"final", "per_task"}
 TASK_HEADING = re.compile(r"^### Task (\d+):\s*(.+?)\s*$")
-FILE_LINE = re.compile(r"^- (?:Create|Modify|Test|Delete|Verify only):\s*`([^`]+)`")
+FILE_LINE = re.compile(
+    r"^- (Create|Modify|Test|Delete|Verify only):\s*`([^`]+)`"
+)
 STEP_LINE = re.compile(r"^- \[([ xX])\] \*\*Step \d+:\s*(.+?)\*\*\s*$")
 CHINESE_TEXT = re.compile(r"[\u3400-\u9fff]")
 WORK_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -98,6 +101,8 @@ def parse_superpowers_plan(path: Path) -> list[dict[str, Any]]:
                 "number": int(heading.group(1)),
                 "title": heading.group(2).strip(),
                 "allowed_files": [],
+                "file_entries": [],
+                "test_files": [],
                 "interfaces": [],
                 "steps": [],
             }
@@ -124,9 +129,15 @@ def parse_superpowers_plan(path: Path) -> list[dict[str, Any]]:
             continue
         file_match = FILE_LINE.match(line)
         if section == "files" and file_match:
-            relative = _strip_line_range(file_match.group(1))
+            role = file_match.group(1)
+            relative = _strip_line_range(file_match.group(2))
             if relative not in current["allowed_files"]:
                 current["allowed_files"].append(relative)
+            entry = {"role": role, "path": relative}
+            if entry not in current["file_entries"]:
+                current["file_entries"].append(entry)
+            if role == "Test" and relative not in current["test_files"]:
+                current["test_files"].append(relative)
             continue
         if section == "interfaces" and line.startswith("- "):
             current["interfaces"].append(line[2:].strip())
@@ -162,6 +173,30 @@ def find_plan(project_root: Path, work_id: str) -> Path:
 def _staged_paths(project_root: Path) -> list[str]:
     result = _run_git(project_root, ["diff", "--cached", "--name-only", "-z"])
     return sorted(path for path in result.stdout.split("\0") if path)
+
+
+def _staged_deleted_paths(project_root: Path) -> list[str]:
+    result = _run_git(
+        project_root,
+        ["diff", "--cached", "--name-only", "--diff-filter=D", "-z", "HEAD", "--"],
+    )
+    return sorted(path for path in result.stdout.split("\0") if path)
+
+
+def _test_files_removed_from_index(
+    project_root: Path, required_test_files: list[str]
+) -> list[str]:
+    removed: list[str] = []
+    for path in required_test_files:
+        existed_at_head = _run_git(
+            project_root, ["cat-file", "-e", f"HEAD:{path}"], check=False
+        ).returncode == 0
+        exists_in_index = _run_git(
+            project_root, ["cat-file", "-e", f":{path}"], check=False
+        ).returncode == 0
+        if existed_at_head and not exists_in_index:
+            removed.append(path)
+    return removed
 
 
 def _is_workflow_metadata(path: str) -> bool:
@@ -284,19 +319,97 @@ def work_state_version(work_dir: Path) -> str:
     return digest.hexdigest()[:16]
 
 
-def _completed_tasks(work_dir: Path) -> set[int]:
+def _checkpoint_commits(project_root: Path, work_id: str) -> dict[int, str]:
+    result = _run_git(
+        project_root,
+        ["log", "--format=%H%x1f%B%x1e"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return {}
+    checkpoints: dict[int, str] = {}
+    trailer = re.compile(rf"^{re.escape(work_id)}-task(\d+)$", re.MULTILINE)
+    for record in result.stdout.split("\x1e"):
+        if "\x1f" not in record:
+            continue
+        commit_sha, message = record.strip().split("\x1f", 1)
+        for match in trailer.finditer(message):
+            task_number = int(match.group(1))
+            if task_number in checkpoints:
+                raise TaskControlConflict(
+                    f"Task {task_number} 存在多个 checkpoint commit"
+                )
+            checkpoints[task_number] = commit_sha
+    return checkpoints
+
+
+def _completed_tasks(
+    project_root: Path, work_dir: Path, work_id: str
+) -> set[int]:
     completed: set[int] = set()
+    checkpoint_commits = _checkpoint_commits(project_root, work_id)
+    evidence_tasks: set[int] = set()
     for path in (work_dir / "evidence").glob("commit-task*.json"):
         match = re.fullmatch(r"commit-task(\d+)\.json", path.name)
         if not match:
             continue
-        try:
-            evidence = _read_json(path)
-        except TaskControlError:
-            continue
-        if evidence.get("status") == "passed" and evidence.get("commit_sha"):
-            completed.add(int(match.group(1)))
+        evidence = _read_json(path)
+        task_number = int(match.group(1))
+        evidence_tasks.add(task_number)
+        commit_sha = evidence.get("commit_sha")
+        if (
+            evidence.get("status") != "passed"
+            or evidence.get("task") != task_number
+            or not isinstance(commit_sha, str)
+            or not commit_sha
+        ):
+            raise TaskControlConflict(f"提交证据无效：{path.name}")
+        if _run_git(
+            project_root, ["cat-file", "-e", f"{commit_sha}^{{commit}}"], check=False
+        ).returncode != 0:
+            raise TaskControlConflict(f"提交证据指向无效 commit：{path.name}")
+        expected_commit = checkpoint_commits.get(task_number)
+        if evidence.get("validation_strategy") is not None and expected_commit != commit_sha:
+            raise TaskControlConflict(f"提交证据与 checkpoint commit 不一致：{path.name}")
+        completed.add(task_number)
+    missing_evidence = sorted(set(checkpoint_commits) - evidence_tasks)
+    if missing_evidence:
+        raise TaskControlConflict(
+            "缺少提交证据："
+            + ", ".join(f"Task {number}" for number in missing_evidence)
+        )
     return completed
+
+
+def _validation_strategy(
+    workflow: Mapping[str, Any], completed: set[int], work_dir: Path
+) -> str:
+    configured = workflow.get("validation_strategy")
+    if configured is not None and configured not in VALIDATION_STRATEGIES:
+        raise TaskControlConflict("验证策略必须是 final 或 per_task")
+    checkpoint_strategies: set[str] = set()
+    for task_number in sorted(completed):
+        evidence = _read_json(
+            work_dir / "evidence" / f"commit-task{task_number}.json"
+        )
+        checkpoint_strategy = evidence.get("validation_strategy", "per_task")
+        if checkpoint_strategy not in VALIDATION_STRATEGIES:
+            raise TaskControlConflict(
+                f"Task {task_number} 的提交证据包含非法验证策略"
+            )
+        checkpoint_strategies.add(str(checkpoint_strategy))
+    if len(checkpoint_strategies) > 1:
+        raise TaskControlConflict("已提交 Task 的验证策略不一致")
+    if checkpoint_strategies:
+        locked = next(iter(checkpoint_strategies))
+        if configured is not None and configured != locked:
+            raise TaskControlConflict("验证策略与已提交 Task 的锁定值不一致")
+        return locked
+    return str(configured or "final")
+
+
+def _planned_test_files(task: Mapping[str, Any]) -> list[str]:
+    return [str(path) for path in task.get("test_files", [])]
 
 
 def _evidence_matches_snapshot(
@@ -373,6 +486,7 @@ def _normalize_spec_amendment(
     interfaces = override.get("interfaces")
     steps = override.get("steps")
     acceptance = override.get("acceptance_criteria")
+    test_files = override.get("test_files")
     if not isinstance(title, str) or not title.strip():
         raise TaskControlConflict("Task 附加修正缺少 title")
     for field, values in (
@@ -387,10 +501,19 @@ def _normalize_spec_amendment(
             or any(not isinstance(value, str) or not value.strip() for value in values)
         ):
             raise TaskControlConflict(f"Task 附加修正的 {field} 必须是非空字符串数组")
+    if test_files is not None and (
+        not isinstance(test_files, list)
+        or any(not isinstance(value, str) or not value.strip() for value in test_files)
+    ):
+        raise TaskControlConflict("Task 附加修正的 test_files 必须是字符串数组")
+    normalized_allowed_files = list(dict.fromkeys(allowed_files))
+    normalized_test_files = list(dict.fromkeys(test_files or []))
+    if any(path not in normalized_allowed_files for path in normalized_test_files):
+        raise TaskControlConflict("Task 附加修正的 test_files 必须属于 allowed_files")
     normalized = dict(amendment)
     normalized["task_override"] = {
         "title": title.strip(),
-        "allowed_files": list(dict.fromkeys(allowed_files)),
+        "allowed_files": normalized_allowed_files,
         "interfaces": list(dict.fromkeys(interfaces)),
         "steps": [
             {"done": False, "title": step.strip()}
@@ -398,6 +521,8 @@ def _normalize_spec_amendment(
         ],
         "acceptance_criteria": list(dict.fromkeys(acceptance)),
     }
+    if test_files is not None:
+        normalized["task_override"]["test_files"] = normalized_test_files
     return normalized
 
 
@@ -482,9 +607,19 @@ def _apply_task_override(
     if not amendment:
         return dict(task)
     override = amendment["task_override"]
+    allowed_files = [str(path) for path in override["allowed_files"]]
+    test_files = override.get("test_files")
+    if test_files is None:
+        test_files = [
+            str(path)
+            for path in task.get("test_files", [])
+            if str(path) in allowed_files
+        ]
     return {
         **task,
         **override,
+        "allowed_files": allowed_files,
+        "test_files": list(test_files),
         "spec_amendment": {
             key: amendment.get(key)
             for key in (
@@ -506,7 +641,8 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
     tasks = parse_superpowers_plan(find_plan(project_root, work_id))
     workflow = _read_json(work_dir / "workflow.json")
     mode = workflow.get("mode", "single")
-    completed = _completed_tasks(work_dir)
+    completed = _completed_tasks(project_root, work_dir, work_id)
+    validation_strategy = _validation_strategy(workflow, completed, work_dir)
     next_incomplete = next(
         (task for task in tasks if task["number"] not in completed), None
     )
@@ -586,7 +722,20 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             task_status = "locked"
         else:
             task_status = "waiting"
-        projected.append({**task, "status": task_status})
+        validation_status = "pending"
+        if number in completed:
+            try:
+                commit_evidence = _read_json(
+                    work_dir / "evidence" / f"commit-task{number}.json"
+                )
+                validation_status = str(
+                    commit_evidence.get("validation_status", "passed")
+                )
+            except TaskControlError:
+                validation_status = "unknown"
+        projected.append(
+            {**task, "status": task_status, "validation_status": validation_status}
+        )
 
     current_projection: dict[str, Any] | None = None
     if current is not None:
@@ -608,6 +757,18 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
         cr_passed = _evidence_matches_snapshot(
             work_dir, "cr", current["number"], snapshot_sha
         )
+        required_test_files = _planned_test_files(current)
+        deleted_test_files = sorted(
+            set(_staged_deleted_paths(project_root))
+            & set(required_test_files)
+        )
+        deleted_test_files = sorted(
+            set(deleted_test_files)
+            | set(_test_files_removed_from_index(project_root, required_test_files))
+        )
+        missing_staged_test_files = [
+            path for path in required_test_files if path not in staged
+        ]
         advance_blockers: list[str] = []
         if not staged:
             advance_blockers.append("当前任务尚无已暂存改动")
@@ -621,18 +782,40 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             advance_blockers.append("规格附加修正产物尚未暂存")
         if amendment_unstaged:
             advance_blockers.append("规格附加修正产物仍有尚未暂存的内容")
-        if not remote_ut_passed:
+        if validation_strategy == "final" and not required_test_files:
+            advance_blockers.append("当前任务计划未声明测试文件")
+        if validation_strategy == "final" and missing_staged_test_files:
+            advance_blockers.append(
+                "当前任务测试文件尚未暂存："
+                + ", ".join(missing_staged_test_files)
+            )
+        if validation_strategy == "final" and deleted_test_files:
+            advance_blockers.append(
+                "测试文件不能以删除状态交付："
+                + ", ".join(deleted_test_files)
+            )
+        if validation_strategy == "per_task" and not remote_ut_passed:
             advance_blockers.append(
                 "规格附加修正后的当前工作区快照远程 UT 尚未通过"
                 if current_spec_amendment
                 else "当前工作区快照的远程 UT 尚未通过"
             )
-        if not cr_passed:
+        if validation_strategy == "per_task" and not cr_passed:
             advance_blockers.append(
                 "规格附加修正后的当前工作区快照 CR 尚未通过"
                 if current_spec_amendment
                 else "当前工作区快照的 CR 尚未通过"
             )
+        validation_ready = (
+            validation_strategy == "final"
+            and bool(required_test_files)
+            and not missing_staged_test_files
+            and not deleted_test_files
+        ) or (
+            validation_strategy == "per_task"
+            and remote_ut_passed
+            and cr_passed
+        )
         can_advance = (
             mode == "single"
             and bool(staged)
@@ -640,9 +823,9 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             and not out_of_scope
             and not spec_amendment_error
             and amendment_staged
+            and not deleted_test_files
             and not amendment_unstaged
-            and remote_ut_passed
-            and cr_passed
+            and validation_ready
         )
         current_projection = {
             **current,
@@ -654,6 +837,10 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             "out_of_scope_files": out_of_scope,
             "remote_ut_passed": remote_ut_passed,
             "cr_passed": cr_passed,
+            "required_test_files": required_test_files,
+            "validation_status": (
+                "pending_final" if validation_strategy == "final" else "per_task"
+            ),
             "can_advance": can_advance,
             "advance_blockers": advance_blockers,
         }
@@ -662,6 +849,8 @@ def project_task_status(project_root: Path, work_id: str) -> dict[str, Any]:
             find_plan(project_root, work_id).relative_to(project_root.resolve())
         ),
         "mode": mode,
+        "validation_strategy": validation_strategy,
+        "validation_strategy_locked": bool(completed),
         "tasks": projected,
         "tasks_total": len(tasks),
         "tasks_done": len(completed),
@@ -738,7 +927,7 @@ def authorize_next_task(
     if workflow.get("mode", "single") != "single":
         raise TaskControlConflict("连续推进模式不需要单独授权下一任务")
     tasks = parse_superpowers_plan(find_plan(project_root, work_id))
-    completed = _completed_tasks(work_dir)
+    completed = _completed_tasks(project_root, work_dir, work_id)
     if not completed:
         raise TaskControlConflict("Task 1 已默认授权，无需重复授权")
     next_task = next(
@@ -808,7 +997,8 @@ def advance_task(
         raise TaskControlConflict("连续推进模式不能手动推进下一个任务")
 
     tasks = parse_superpowers_plan(find_plan(project_root, work_id))
-    completed = _completed_tasks(work_dir)
+    completed = _completed_tasks(project_root, work_dir, work_id)
+    validation_strategy = _validation_strategy(workflow, completed, work_dir)
     current = next((task for task in tasks if task["number"] not in completed), None)
     if current is None:
         raise TaskControlConflict("所有实施子任务已经完成")
@@ -852,8 +1042,30 @@ def advance_task(
         raise TaskControlConflict(
             "工作区仍有尚未暂存的改动：" + ", ".join(unstaged)
         )
+    required_test_files = _planned_test_files(current)
+    if validation_strategy == "final":
+        if not required_test_files:
+            raise TaskControlConflict("当前任务计划未声明测试文件")
+        deleted_test_files = sorted(
+            (set(_staged_deleted_paths(project_root)) & set(required_test_files))
+            | set(_test_files_removed_from_index(project_root, required_test_files))
+        )
+        if deleted_test_files:
+            raise TaskControlConflict(
+                "测试文件不能以删除状态交付："
+                + ", ".join(deleted_test_files)
+            )
+        missing_staged_test_files = [
+            path for path in required_test_files if path not in staged
+        ]
+        if missing_staged_test_files:
+            raise TaskControlConflict(
+                "当前任务测试文件尚未暂存："
+                + ", ".join(missing_staged_test_files)
+            )
     snapshot_sha = _task_snapshot_sha(project_root, amendment_chain)
-    _validate_task_evidence(work_dir, expected_task, snapshot_sha)
+    if validation_strategy == "per_task":
+        _validate_task_evidence(work_dir, expected_task, snapshot_sha)
     message = format_task_commit(
         work_id, expected_task, commit_type, summary
     )
@@ -870,6 +1082,11 @@ def advance_task(
             "snapshot_sha": snapshot_sha,
             "commit_sha": commit_sha,
             "message": message,
+            "staged_files": staged,
+            "validation_strategy": validation_strategy,
+            "validation_status": (
+                "pending_final" if validation_strategy == "final" else "passed"
+            ),
         },
     )
     next_task = next(

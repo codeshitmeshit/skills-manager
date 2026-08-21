@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cosh Hammer 研发观察板</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">HAMMER · CODING PLUGIN</p>
+        <h1>Cosh Hammer 研发观察板</h1>
+        <p id="summary">正在连接 Hammer 主流程…</p>
+      </header>
+      <section id="warning" hidden></section>
+      <section class="card">
+        <div class="card-title"><h2>主流程</h2><span id="connection">连接中</span></div>
+        <dl id="hammer"></dl>
+      </section>
+      <section class="card">
+        <div class="card-title"><h2>研发阶段</h2><span id="mode"></span></div>
+        <div id="controls" class="controls" aria-label="编码推进设置">
+          <button type="button" data-mode="single">单独推进</button>
+          <button type="button" data-mode="continuous">连续推进</button>
+          <button type="button" id="authorize">授权当前细分任务</button>
+        </div>
+        <div id="stages" class="stages"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
