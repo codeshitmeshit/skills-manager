@@ -11,6 +11,10 @@
 - `.hammer/`：只读展示 Hammer design、review、plan、execute、Gate 和交付状态；
 - `.cosh/hammer-plugin/<work-id>/`：展示入口、CodeGraph、预计修改面、定位、编码计划、细分任务与交接状态。
 
+页面导航按 Hammer 主流程组织：总览、需求、设计、三路评审、计划、编码、验证、交付和全部产物。各阶段页展示对应 Hammer/Cosh 产物；“全部产物”列出活动 `.hammer/**` 与入口插件目录中的全部普通文件，并按需读取内容。UTF-8 文本、Markdown 和 JSON 直接预览，二进制与超过读取上限的文件仅展示元信息。路径越界、符号链接和不存在的产物必须拒绝。
+
+编码推进设置不是全局时间线控件：只在“编码”页且已经生成细分任务时展示。逐一任务模式仅在当前 pending 任务尚未授权时显示授权按钮；连续模式不显示授权按钮。其他 Hammer 阶段页面只读，不得出现插件推进控制。
+
 入口目录默认保持为活动目录，不因发现其他 Git worktree 而自行迁移。只有 Hammer 在当前 `.hammer/design/session.md` 写入合法的 `workspace.worktree decision=migrated_away path=...` 事件后，服务才校验目标属于当前仓库的已注册 Git worktree，并沿迁移链读取目标 `.hammer/`；无事件时始终继续监听原目录，非法或循环迁移时 fail closed。插件状态和控制仍留在入口目录的 `.cosh/hammer-plugin/<work-id>/`。
 
 服务只能把控制写入插件目录。缓存 `dashboard/dashboard-state.json` 只用于重启恢复显示，不是 Hammer 或插件门禁证据。实时投影失败时展示最后有效快照并标记 stale，禁用所有控制。

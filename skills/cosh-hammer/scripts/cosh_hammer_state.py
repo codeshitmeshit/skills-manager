@@ -19,6 +19,7 @@ WORKTREE_MIGRATION_RE = re.compile(
     r"workspace\.worktree\s+decision=migrated_away\s+path=(.+?)"
     r"(?:\s+tool=\S+)?\s*$"
 )
+MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 PLUGIN_RELATIVE = Path(".cosh") / "hammer-plugin"
 STAGE_DEFINITIONS = (
     ("launch", "需求入口", "launch/launch.json"),
@@ -137,6 +138,7 @@ def initialize_launch(
     source: Mapping[str, Any],
     hammer_root: Path,
     worktree_policy: str = "skip",
+    meego_id: str | None = None,
 ) -> dict[str, Any]:
     project = project.resolve()
     if not project.is_dir():
@@ -146,6 +148,30 @@ def initialize_launch(
         raise CoshHammerError("澄清后的需求不能为空")
     if worktree_policy not in {"skip", "open"}:
         raise CoshHammerError("worktree 策略只能是 skip 或 open")
+    normalized_meego_id = meego_id.strip() if meego_id is not None else ""
+    if normalized_meego_id and not re.fullmatch(r"[1-9][0-9]*", normalized_meego_id):
+        raise CoshHammerError("Meego ID 必须是正整数")
+    if normalized_meego_id:
+        meego = {
+            "bound": True,
+            "id": normalized_meego_id,
+            "url": (
+                "https://meego.larkoffice.com/larksuite/story/detail/"
+                f"{normalized_meego_id}"
+            ),
+        }
+        meego_decision = (
+            "用户已通过 cosh-hammer 绑定当前需求 Meego。请由 Hammer 自己在 Stage 1 "
+            "产物中按以下合法 schema 记录，插件不得写入 `.hammer/`：\n\n"
+            "## Meego 处理决策\n"
+            "- decision: existing\n"
+            "- source: user\n"
+            f"- url: {meego['url']}\n"
+            f"- reason: 用户绑定 Meego ID {normalized_meego_id}\n\n"
+        )
+    else:
+        meego = {"bound": False}
+        meego_decision = ""
     root = plugin_root(project, work_id)
     launch_dir = root / "launch"
     launch_dir.mkdir(parents=True, exist_ok=True)
@@ -178,6 +204,7 @@ def initialize_launch(
     hammer_prompt = (
         "$hammer\n\n"
         f"{worktree_decision}"
+        f"{meego_decision}"
         "请以 Hammer 作为唯一主流程处理以下需求。设计、三路技术评审、上报、计划、"
         "最终 UT/CI/CR/E2E 与交付均使用 Hammer 原生流程；进入 Execute 编码任务时，"
         "使用 $cosh-hammer 编码模式细化并实现当前 Hammer 父任务。为了让标准 task-dispatch "
@@ -192,6 +219,7 @@ def initialize_launch(
         "project": str(project),
         "hammer": {"required": True, "root": str(hammer)},
         "worktree": {"policy": worktree_policy, "source": "user"},
+        "meego": meego,
         "hammer_prompt": hammer_prompt,
         "dashboard_url": f"http://127.0.0.1:57172/?work={work_id}",
         "created_at": _now(),
@@ -389,6 +417,152 @@ def _active_project_root(project: Path) -> tuple[Path, list[str]]:
     raise CoshHammerError("Hammer worktree 迁移链超过 8 层")
 
 
+def _launch_context(
+    project: Path, work_id: str
+) -> tuple[Path, dict[str, Any], Path, list[str]]:
+    project = project.resolve()
+    root = plugin_root(project, work_id)
+    launch = _read_json(root / "launch" / "launch.json")
+    hammer_config = launch.get("hammer")
+    if not isinstance(hammer_config, dict) or not hammer_config.get("required"):
+        raise CoshHammerError("launch.json 缺少强制 Hammer 依赖")
+    configured_root = hammer_config.get("root")
+    if not isinstance(configured_root, str) or not configured_root:
+        raise CoshHammerError("launch.json 缺少 Hammer 根目录")
+    validate_hammer_root(Path(configured_root))
+    active_project, migration_chain = _active_project_root(project)
+    return root, launch, active_project, migration_chain
+
+
+def _artifact_category(scope: str, relative: Path) -> str:
+    parts = relative.parts
+    lowered = "/".join(parts).lower()
+    name = relative.name.lower()
+    if scope == "cosh":
+        return "coding" if parts and parts[0] == "coding" else "requirement"
+    if lowered.startswith("design/drafts/stage1-"):
+        return "requirement"
+    if lowered.startswith("design/") and "review" in name:
+        return "review"
+    if lowered.startswith("design/"):
+        return "design"
+    if lowered.startswith("plan/"):
+        return "plan"
+    if lowered.startswith("execute/"):
+        if any(
+            token in name
+            for token in ("meego", "mr.", "report", "finalize", "archive")
+        ):
+            return "delivery"
+        if any(
+            token in lowered
+            for token in ("remote-ut", "test", "e2e", "ci", "review", "gate")
+        ):
+            return "validation"
+        return "coding"
+    return "delivery"
+
+
+def _safe_artifact_path(root: Path, relative_path: str) -> tuple[Path, Path]:
+    relative = Path(relative_path)
+    if (
+        not relative_path
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or "." in relative.parts
+    ):
+        raise CoshHammerError("产物路径无效")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise CoshHammerError(f"产物路径不得包含符号链接：{relative_path}")
+    candidate = (root / relative).resolve(strict=False)
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as error:
+        raise CoshHammerError("产物路径越界") from error
+    if not candidate.is_file():
+        raise CoshHammerError(f"产物不存在：{relative_path}")
+    return candidate, relative
+
+
+def list_artifacts(project: Path, work_id: str) -> list[dict[str, Any]]:
+    plugin, _launch, active_project, _chain = _launch_context(project, work_id)
+    roots = (("hammer", active_project / ".hammer"), ("cosh", plugin))
+    artifacts: list[dict[str, Any]] = []
+    for scope, root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            relative = path.relative_to(root)
+            if scope == "cosh" and relative.parts[0] == "dashboard":
+                continue
+            try:
+                candidate, relative = _safe_artifact_path(root, relative.as_posix())
+            except CoshHammerError:
+                continue
+            stat = candidate.stat()
+            artifacts.append(
+                {
+                    "scope": scope,
+                    "path": relative.as_posix(),
+                    "name": relative.name,
+                    "category": _artifact_category(scope, relative),
+                    "size": stat.st_size,
+                    "updated_at_ns": stat.st_mtime_ns,
+                }
+            )
+    return sorted(
+        artifacts,
+        key=lambda item: (item["category"], item["scope"], item["path"]),
+    )
+
+
+def read_artifact(
+    project: Path,
+    work_id: str,
+    *,
+    scope: str,
+    relative_path: str,
+) -> dict[str, Any]:
+    plugin, _launch, active_project, _chain = _launch_context(project, work_id)
+    if scope == "hammer":
+        root = active_project / ".hammer"
+    elif scope == "cosh":
+        root = plugin
+    else:
+        raise CoshHammerError("产物 scope 只能是 hammer 或 cosh")
+    candidate, relative = _safe_artifact_path(root, relative_path)
+    size = candidate.stat().st_size
+    if size > MAX_ARTIFACT_BYTES:
+        return {
+            "scope": scope,
+            "path": relative.as_posix(),
+            "category": _artifact_category(scope, relative),
+            "kind": "large",
+            "size": size,
+            "content": None,
+        }
+    data = candidate.read_bytes()
+    try:
+        content = data.decode("utf-8")
+        kind = "text"
+    except UnicodeDecodeError:
+        content = None
+        kind = "binary"
+    return {
+        "scope": scope,
+        "path": relative.as_posix(),
+        "category": _artifact_category(scope, relative),
+        "kind": kind,
+        "size": size,
+        "content": content,
+    }
+
+
 def _hammer_stage_status(hammer: Mapping[str, Any], stage_id: str) -> str:
     stage = str(hammer.get("stage", "")).lower()
     status = str(hammer.get("status", "")).lower()
@@ -410,16 +584,7 @@ def _hammer_stage_status(hammer: Mapping[str, Any], stage_id: str) -> str:
 
 def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     project = project.resolve()
-    root = plugin_root(project, work_id)
-    launch = _read_json(root / "launch" / "launch.json")
-    hammer_config = launch.get("hammer")
-    if not isinstance(hammer_config, dict) or not hammer_config.get("required"):
-        raise CoshHammerError("launch.json 缺少强制 Hammer 依赖")
-    configured_root = hammer_config.get("root")
-    if not isinstance(configured_root, str) or not configured_root:
-        raise CoshHammerError("launch.json 缺少 Hammer 根目录")
-    validate_hammer_root(Path(configured_root))
-    active_project, migration_chain = _active_project_root(project)
+    root, launch, active_project, migration_chain = _launch_context(project, work_id)
     hammer = _hammer_state(active_project)
     stages = []
     for stage_id, label, relative in STAGE_DEFINITIONS:
@@ -462,10 +627,14 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             "migration_chain": migration_chain,
         },
         "hammer": hammer,
-        "launch": {"dashboard_url": launch.get("dashboard_url")},
+        "launch": {
+            "dashboard_url": launch.get("dashboard_url"),
+            "meego": launch.get("meego", {"bound": False}),
+        },
         "stages": stages,
         "control": control,
         "coding": {"current_task": current_coding_task, "tasks": coding_tasks},
+        "artifacts": list_artifacts(project, work_id),
         "stale": False,
         "controls_enabled": True,
         "read_at": _now(),
@@ -563,6 +732,10 @@ def build_parser() -> argparse.ArgumentParser:
         default="skip",
         help="工作区隔离策略；默认关闭，仅在用户明确要求时使用 open",
     )
+    init.add_argument(
+        "--meego-id",
+        help="可选的当前需求 Meego ID；未提供时不阻塞 cosh-hammer",
+    )
     status = sub.add_parser("status", help="输出观察板投影")
     status.add_argument("--project", type=Path, required=True)
     status.add_argument("--work", required=True)
@@ -580,6 +753,7 @@ def main() -> int:
                 source={"kind": args.source_kind, "value": args.source},
                 hammer_root=args.hammer_root,
                 worktree_policy=args.worktree,
+                meego_id=args.meego_id,
             )
         else:
             payload = build_status(args.project, args.work)

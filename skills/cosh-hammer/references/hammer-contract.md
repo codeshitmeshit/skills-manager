@@ -17,7 +17,11 @@ Hammer 独占以下内容：
 
 ## Worker 返回
 
-编码模式只返回 Hammer 已接受的 `DONE` 或 `BLOCKED`。返回内容应包含当前 Hammer 父任务、代码快照/commit、插件 checkpoint 摘要和阻塞原因；不得发明新的 Hammer 状态。
+编码模式只返回 Hammer 已接受的 `DONE` 或 `BLOCKED`。返回内容应包含当前 Hammer 父任务、代码快照/commit、插件 checkpoint 摘要和阻塞原因；入口已绑定 Meego 时还应从 `launch.json` 原样携带 Meego ID，未绑定时省略且不得阻塞。不得发明新的 Hammer 状态。
+
+## Meego 弱绑定
+
+创建插件 work 时提示用户可选绑定当前需求 Meego ID。绑定后，入口 prompt 透传 Hammer 合法的 `decision: existing`、`source: user` 和规范化 URL，由 Hammer 自己写 Stage 1 决策及后续产物；插件不得写 `.hammer/execute/meego.md`。用户跳过时不阻塞 cosh-hammer、不创建事项，也不伪造 `skip` 等 Hammer 不支持的第三种决策，后续由 Hammer 原生 Meego 流程决定。
 
 ## Dispatch 透传
 

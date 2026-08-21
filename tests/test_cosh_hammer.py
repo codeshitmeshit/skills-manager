@@ -10,6 +10,7 @@ import tempfile
 import threading
 import unittest
 import urllib.request
+import urllib.parse
 from http.server import ThreadingHTTPServer
 
 
@@ -144,6 +145,7 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(
             launch["worktree"], {"policy": "skip", "source": "user"}
         )
+        self.assertEqual(launch["meego"], {"bound": False})
         self.assertIn("$hammer", launch["hammer_prompt"])
         self.assertIn("- decision: skip", launch["hammer_prompt"])
         self.assertIn("- source: user", launch["hammer_prompt"])
@@ -205,6 +207,40 @@ class CoshHammerStateTest(unittest.TestCase):
                 worktree_policy="auto",
             )
 
+    def test_initialize_launch_optionally_binds_meego_for_hammer(self) -> None:
+        launch = self.state.initialize_launch(
+            self.project,
+            work_id="meego-order-risk",
+            refined_requirement="限制重复下单。",
+            source={"kind": "text", "value": "限制重复下单"},
+            hammer_root=self.hammer_root,
+            meego_id="7092608674",
+        )
+        self.assertEqual(
+            launch["meego"],
+            {
+                "bound": True,
+                "id": "7092608674",
+                "url": "https://meego.larkoffice.com/larksuite/story/detail/7092608674",
+            },
+        )
+        self.assertIn("## Meego 处理决策", launch["hammer_prompt"])
+        self.assertIn("- decision: existing", launch["hammer_prompt"])
+        self.assertIn("- source: user", launch["hammer_prompt"])
+        self.assertIn("detail/7092608674", launch["hammer_prompt"])
+        status = self.state.build_status(self.project, "meego-order-risk")
+        self.assertEqual(status["launch"]["meego"], launch["meego"])
+
+        with self.assertRaises(self.state.CoshHammerError):
+            self.state.initialize_launch(
+                self.project,
+                work_id="invalid-meego",
+                refined_requirement="x",
+                source={"kind": "text", "value": "x"},
+                hammer_root=self.hammer_root,
+                meego_id="story-7092608674",
+            )
+
     def test_init_cli_defaults_to_skip_and_accepts_explicit_open(self) -> None:
         parser = self.state.build_parser()
         common = [
@@ -221,9 +257,14 @@ class CoshHammerStateTest(unittest.TestCase):
             str(self.hammer_root),
         ]
         self.assertEqual(parser.parse_args(common).worktree, "skip")
+        self.assertIsNone(parser.parse_args(common).meego_id)
         self.assertEqual(
             parser.parse_args([*common, "--worktree", "open"]).worktree,
             "open",
+        )
+        self.assertEqual(
+            parser.parse_args([*common, "--meego-id", "7092608674"]).meego_id,
+            "7092608674",
         )
 
     def test_descendant_symlink_cannot_redirect_plugin_writes_into_hammer(self) -> None:
@@ -263,6 +304,95 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(stages["change_surface"], "running")
         self.assertIn("hammer_validation", stages)
         self.assertFalse(status["stale"])
+
+    def test_artifact_inventory_and_reader_expose_hammer_and_cosh_outputs(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="artifact-work",
+            refined_requirement="展示全部研发产物。",
+            source={"kind": "text", "value": "展示全部研发产物"},
+            hammer_root=self.hammer_root,
+        )
+        design = self.project / ".hammer" / "design"
+        drafts = design / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "stage1-change.md").write_text(
+            "# 需求结论\n", encoding="utf-8"
+        )
+        (design / "design.md").write_text("# 技术设计\n", encoding="utf-8")
+        (design / "security-review.md").write_text(
+            "# 安全评审\n", encoding="utf-8"
+        )
+        coding = (
+            self.project
+            / ".cosh"
+            / "hammer-plugin"
+            / "artifact-work"
+            / "coding"
+        )
+        coding.mkdir(parents=True)
+        (coding / "implementation-plan.md").write_text(
+            "# 编码计划\n", encoding="utf-8"
+        )
+
+        status = self.state.build_status(self.project, "artifact-work")
+        artifacts = {
+            (item["scope"], item["path"]): item for item in status["artifacts"]
+        }
+
+        self.assertEqual(
+            artifacts[("hammer", "design/drafts/stage1-change.md")]["category"],
+            "requirement",
+        )
+        self.assertEqual(
+            artifacts[("hammer", "design/design.md")]["category"], "design"
+        )
+        self.assertEqual(
+            artifacts[("hammer", "design/security-review.md")]["category"],
+            "review",
+        )
+        self.assertEqual(
+            artifacts[("cosh", "coding/implementation-plan.md")]["category"],
+            "coding",
+        )
+        artifact = self.state.read_artifact(
+            self.project,
+            "artifact-work",
+            scope="hammer",
+            relative_path="design/design.md",
+        )
+        self.assertEqual(artifact["content"], "# 技术设计\n")
+        self.assertEqual(artifact["kind"], "text")
+        self.assertNotIn(
+            ("cosh", "dashboard/dashboard-state.json"), artifacts
+        )
+
+    def test_artifact_reader_rejects_traversal_and_symlink_escape(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="artifact-security",
+            refined_requirement="安全查看产物。",
+            source={"kind": "text", "value": "安全查看产物"},
+            hammer_root=self.hammer_root,
+        )
+        outside = pathlib.Path(self.temp.name) / "secret.txt"
+        outside.write_text("secret\n", encoding="utf-8")
+        (self.project / ".hammer" / "secret-link").symlink_to(outside)
+
+        with self.assertRaises(self.state.CoshHammerError):
+            self.state.read_artifact(
+                self.project,
+                "artifact-security",
+                scope="hammer",
+                relative_path="../secret.txt",
+            )
+        with self.assertRaises(self.state.CoshHammerError):
+            self.state.read_artifact(
+                self.project,
+                "artifact-security",
+                scope="hammer",
+                relative_path="secret-link",
+            )
 
     def test_projection_stays_on_original_project_without_migration_event(self) -> None:
         self.state.initialize_launch(
@@ -330,6 +460,13 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(status["active_project"], str(target.resolve()))
         self.assertTrue(status["workspace"]["migrated"])
         self.assertEqual(status["workspace"]["migration_chain"], [str(target.resolve())])
+        artifact = self.state.read_artifact(
+            self.project,
+            "migrated-work",
+            scope="hammer",
+            relative_path="execute/session.md",
+        )
+        self.assertIn("TASK-2", artifact["content"])
 
     def test_projection_fails_closed_for_unregistered_migration_target(self) -> None:
         self.state.initialize_launch(
@@ -569,13 +706,63 @@ class CoshHammerStateTest(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
+    def test_http_artifact_endpoint_reads_projected_output(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="artifact-http",
+            refined_requirement="查看 Hammer 计划。",
+            source={"kind": "text", "value": "查看 Hammer 计划"},
+            hammer_root=self.hammer_root,
+        )
+        plan = self.project / ".hammer" / "plan" / "plan.md"
+        plan.write_text("# Hammer Plan\n", encoding="utf-8")
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            self.server.make_handler(self.project, "artifact-http"),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            query = urllib.parse.urlencode(
+                {
+                    "work": "artifact-http",
+                    "scope": "hammer",
+                    "path": "plan/plan.md",
+                }
+            )
+            with urllib.request.urlopen(
+                f"http://{host}:{port}/api/artifact?{query}"
+            ) as response:
+                artifact = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(artifact["content"], "# Hammer Plan\n")
+            self.assertEqual(artifact["scope"], "hammer")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_dashboard_assets_use_sse_and_our_observation_board(self) -> None:
         html = (SKILL_DIR / "assets" / "dashboard" / "index.html").read_text(encoding="utf-8")
         js = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(encoding="utf-8")
         self.assertIn("Cosh Hammer 研发观察板", html)
+        for tab in (
+            "overview",
+            "requirement",
+            "design",
+            "review",
+            "plan",
+            "coding",
+            "validation",
+            "delivery",
+            "artifacts",
+        ):
+            self.assertIn(f'data-tab="{tab}"', html)
+        self.assertNotIn('id="controls"', html)
         self.assertIn("EventSource", js)
         self.assertIn("/events", js)
         self.assertIn("/api/status", js)
+        self.assertIn("/api/artifact", js)
         self.assertNotIn("localStorage", js)
         self.assertIn("set-mode", js)
         self.assertIn("authorize-task", js)

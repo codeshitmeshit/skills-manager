@@ -62,6 +62,19 @@ def make_handler(project: Path, configured_work: str | None):
                 if parsed.path == "/api/status":
                     self._json(state.build_status(project, self._work()))
                     return
+                if parsed.path == "/api/artifact":
+                    query = parse_qs(parsed.query)
+                    scope = query.get("scope", [""])[0]
+                    relative_path = query.get("path", [""])[0]
+                    self._json(
+                        state.read_artifact(
+                            project,
+                            self._work(),
+                            scope=scope,
+                            relative_path=relative_path,
+                        )
+                    )
+                    return
                 if parsed.path == "/healthz":
                     self._json(
                         {

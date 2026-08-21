@@ -9,6 +9,6 @@
 - `tasks.json`：Hammer 父任务与细分任务的映射和状态。顶层至少包含 `status`、`current_task` 与 `tasks[]`；每个任务包含稳定 `id`、`hammer_parent`、`title`、`status`、预计文件和验收点。观察板只能授权该数组内的任务。
 - `amendments/`：实现过程中对预计修改面的附加修正，不重建 Hammer plan，除非用户明确要求。
 - `checkpoints/`：细分任务的快照、验证与授权记录，不冒充 Hammer commit。
-- `parent-handoffs/`：返回 Hammer 的父任务 `DONE`/`BLOCKED` 摘要。
+- `parent-handoffs/`：返回 Hammer 的父任务 `DONE`/`BLOCKED` 摘要；入口已绑定 Meego 时携带 `launch.json` 中的 Meego ID，未绑定时省略。
 
 预计修改面或细分任务跨越当前 Hammer 父任务边界时，属于重大决策，必须中断询问。

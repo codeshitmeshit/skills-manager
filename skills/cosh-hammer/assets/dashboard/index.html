@@ -8,26 +8,40 @@
   </head>
   <body>
     <main>
-      <header>
-        <p class="eyebrow">HAMMER · CODING PLUGIN</p>
-        <h1>Cosh Hammer 研发观察板</h1>
-        <p id="summary">正在连接 Hammer 主流程…</p>
+      <header class="hero">
+        <div>
+          <p class="eyebrow">HAMMER · CODING PLUGIN</p>
+          <h1>Cosh Hammer 研发观察板</h1>
+          <p id="summary">正在连接 Hammer 主流程…</p>
+        </div>
+        <span id="connection" class="connection">连接中</span>
       </header>
       <section id="warning" hidden></section>
-      <section class="card">
-        <div class="card-title"><h2>主流程</h2><span id="connection">连接中</span></div>
-        <dl id="hammer"></dl>
-      </section>
-      <section class="card">
-        <div class="card-title"><h2>研发阶段</h2><span id="mode"></span></div>
-        <div id="controls" class="controls" aria-label="编码推进设置">
-          <button type="button" data-mode="single">单独推进</button>
-          <button type="button" data-mode="continuous">连续推进</button>
-          <button type="button" id="authorize">授权当前细分任务</button>
-        </div>
-        <div id="stages" class="stages"></div>
-      </section>
+      <nav class="tabs" role="tablist" aria-label="Hammer 研发阶段">
+        <button type="button" role="tab" data-tab="overview">总览</button>
+        <button type="button" role="tab" data-tab="requirement">需求</button>
+        <button type="button" role="tab" data-tab="design">设计</button>
+        <button type="button" role="tab" data-tab="review">三路评审</button>
+        <button type="button" role="tab" data-tab="plan">计划</button>
+        <button type="button" role="tab" data-tab="coding">编码</button>
+        <button type="button" role="tab" data-tab="validation">验证</button>
+        <button type="button" role="tab" data-tab="delivery">交付</button>
+        <button type="button" role="tab" data-tab="artifacts">全部产物</button>
+      </nav>
+      <section id="viewport" class="viewport" role="tabpanel"></section>
     </main>
+    <section id="artifact-viewer" class="artifact-viewer" hidden aria-label="产物内容">
+      <div class="viewer-panel">
+        <div class="viewer-title">
+          <div>
+            <p id="artifact-owner" class="eyebrow"></p>
+            <h2 id="artifact-title"></h2>
+          </div>
+          <button type="button" id="close-artifact">关闭</button>
+        </div>
+        <pre id="artifact-content"></pre>
+      </div>
+    </section>
     <script src="/app.js"></script>
   </body>
 </html>

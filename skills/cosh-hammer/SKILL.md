@@ -28,9 +28,9 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 
 1. 只澄清产品目标、范围、约束和验收条件，不提前替 Hammer 作技术设计。
 2. 检查 `$hammer` 可用；缺失时停止，不得降级为独立研发流程。
-3. 用 `scripts/cosh_hammer_state.py init` 固化需求和结构化 Hammer prompt。默认传入 `--worktree skip`；只有用户在本次请求中明确要求使用 worktree 时才传入 `--worktree open`，不得根据实现复杂度自行开启。
+3. 在入口澄清的同一轮提示用户可绑定当前需求 Meego ID，也允许跳过。提供时向 `scripts/cosh_hammer_state.py init` 传 `--meego-id <id>`；未提供时继续，Meego 对本插件是弱依赖，不得因此阻塞或自行创建事项。默认传入 `--worktree skip`；只有用户在本次请求中明确要求使用 worktree 时才传入 `--worktree open`，不得根据实现复杂度自行开启。
 4. 在调用 `$hammer` 前运行 `scripts/start_cosh_hammer_dashboard.py`；只有它完成 `/healthz` 校验并输出 `READY` 后才继续。启动器固定使用端口 `57172`，随后通过系统默认浏览器打开。
-5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；其中包含用户的 worktree 决策，由 Hammer 自己按 Stage 1 schema 写入 `.hammer/`。该 prompt 还要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
+5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；其中包含用户的 worktree 决策，以及已绑定时的 Meego `existing` 决策，由 Hammer 自己按 Stage 1 schema 写入 `.hammer/`。未绑定时不替 Hammer 决策，继续其原生 Meego 流程。该 prompt 还要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
 
 ### 编码模式
 
@@ -40,7 +40,7 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 2. 首次进入时按顺序生成 CodeGraph 代码事实、预计修改面、精准定位、编码计划和细分任务。
 3. 按用户在观察板选择的单独推进或连续推进方式实现当前 Hammer 父任务下的细分任务。
 4. 细分任务只记录 checkpoint；完成当前 Hammer 父任务的全部细分任务后，才创建一个符合 Hammer 契约的父任务 commit。
-5. 向 Hammer 返回标准 `DONE` 或 `BLOCKED`，不得新增 Hammer 状态或自行推进 Hammer Gate。
+5. 向 Hammer 返回标准 `DONE` 或 `BLOCKED`；若 `launch.json` 已绑定 Meego，同时携带该 Meego ID，未绑定则省略且不阻塞。不得新增 Hammer 状态或自行推进 Hammer Gate。
 6. 编码结束后回归 Hammer；远程 UT、CI、最终 CR、BOE/E2E、验收、上报、MR 与归档全部继续使用 Hammer 原生流程。
 
 ## 决策规则
@@ -61,6 +61,8 @@ python3 <skill-root>/scripts/start_cosh_hammer_dashboard.py \
 ```
 
 端口冲突时直接报告并停止，不得随机换端口。观察板通过 SSE 实时读取 `.hammer/` 与 `.cosh/hammer-plugin/`，但所有控制只允许修改插件状态。
+
+页面以 Hammer 阶段组织为总览、需求、设计、三路评审、计划、编码、验证、交付和全部产物。Hammer 与 Cosh 的文本、Markdown、JSON 产物可在页面按需读取；二进制或超大文件只展示元信息。编码推进方式和任务授权只出现在编码页，且尚无细分任务时不展示控制。
 
 ## 交付检查
 
