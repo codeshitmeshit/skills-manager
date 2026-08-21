@@ -169,7 +169,7 @@ def initialize_launch(
         "project": str(project),
         "hammer": {"required": True, "root": str(hammer)},
         "hammer_prompt": hammer_prompt,
-        "dashboard_url": f"http://127.0.0.1:57171/?work={work_id}",
+        "dashboard_url": f"http://127.0.0.1:57172/?work={work_id}",
         "created_at": _now(),
     }
     _atomic_json(launch_dir / "launch.json", launch, owner_root=root)

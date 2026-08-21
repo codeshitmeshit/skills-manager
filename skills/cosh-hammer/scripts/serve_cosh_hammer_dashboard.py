@@ -25,7 +25,7 @@ import cosh_hammer_state as state  # noqa: E402
 
 
 ASSET_DIR = SCRIPT_DIR.parent / "assets" / "dashboard"
-FIXED_PORT = 57171
+FIXED_PORT = 57172
 MAX_REQUEST_BYTES = 1024 * 1024
 
 

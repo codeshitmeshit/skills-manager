@@ -295,9 +295,9 @@ class CoshHammerStateTest(unittest.TestCase):
             self.state.apply_control(
                 self.project, "order-risk", {"action": "advance-hammer"}
             )
-        self.assertEqual(self.server.FIXED_PORT, 57171)
+        self.assertEqual(self.server.FIXED_PORT, 57172)
         parser = self.server.build_parser()
-        self.assertEqual(parser.parse_args(["--project", str(self.project)]).port, 57171)
+        self.assertEqual(parser.parse_args(["--project", str(self.project)]).port, 57172)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["--project", str(self.project), "--port", "49999"])
 

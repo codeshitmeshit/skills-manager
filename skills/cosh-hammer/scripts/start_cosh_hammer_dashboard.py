@@ -23,7 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import cosh_hammer_state as state  # noqa: E402
 
 
-FIXED_PORT = 57171
+FIXED_PORT = 57172
 
 
 def wait_until_ready(

@@ -29,7 +29,7 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 1. 只澄清产品目标、范围、约束和验收条件，不提前替 Hammer 作技术设计。
 2. 检查 `$hammer` 可用；缺失时停止，不得降级为独立研发流程。
 3. 用 `scripts/cosh_hammer_state.py init` 固化需求和结构化 Hammer prompt。
-4. 在调用 `$hammer` 前运行 `scripts/start_cosh_hammer_dashboard.py`；只有它完成 `/healthz` 校验并输出 `READY` 后才继续。启动器固定使用端口 `57171`，随后通过系统默认浏览器打开。
+4. 在调用 `$hammer` 前运行 `scripts/start_cosh_hammer_dashboard.py`；只有它完成 `/healthz` 校验并输出 `READY` 后才继续。启动器固定使用端口 `57172`，随后通过系统默认浏览器打开。
 5. 把 `launch.json` 中的 `hammer_prompt` 原样作为 Hammer 输入；该 prompt 要求 Hammer 在每个 coding task 执行说明中保留 `Use $cosh-hammer in coding mode for this Hammer parent task.`，确保标准 task-dispatch 仍能触发本插件。随后由 Hammer 接管 design、三路技术评审、上报、plan 与 execute。
 
 ### 编码模式
@@ -57,7 +57,7 @@ python3 <skill-root>/scripts/start_cosh_hammer_dashboard.py \
   --work <work-id> \
   --hammer-root <hammer-absolute-path> \
   --host 127.0.0.1 \
-  --port 57171
+  --port 57172
 ```
 
 端口冲突时直接报告并停止，不得随机换端口。观察板通过 SSE 实时读取 `.hammer/` 与 `.cosh/hammer-plugin/`，但所有控制只允许修改插件状态。
