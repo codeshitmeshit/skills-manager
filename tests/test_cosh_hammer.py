@@ -312,6 +312,42 @@ class CoshHammerStateTest(unittest.TestCase):
             ]
         }
 
+    def detailed_task(
+        self,
+        task_id: str,
+        hammer_parent: str,
+        *,
+        dependencies: list[str],
+        expected_file: str | None = None,
+    ) -> dict:
+        return {
+            "id": task_id,
+            "hammer_parent": hammer_parent,
+            "title": f"实现 {task_id}",
+            "description": f"基于源码事实完成 {task_id} 并保持现有行为兼容。",
+            "expected_files": [expected_file or f"{task_id}.go"],
+            "symbols": [f"{task_id}.Run"],
+            "steps": ["核对源码事实", "实现最小改动", "运行验收测试"],
+            "dependencies": dependencies,
+            "acceptance": [f"{task_id} 验收通过"],
+        }
+
+    def global_coding_task_spec(self) -> dict:
+        return {
+            "tasks": [
+                self.detailed_task("task1-fg", "Task 1", dependencies=[]),
+                self.detailed_task(
+                    "task1-tcc", "Task 1", dependencies=["task1-fg"]
+                ),
+                self.detailed_task(
+                    "task2-query", "Task 2", dependencies=["task1-tcc"]
+                ),
+                self.detailed_task(
+                    "task3-consumer", "Task 3", dependencies=["task2-query"]
+                ),
+            ]
+        }
+
     def test_preflight_fails_closed_when_dashboard_is_unavailable(self) -> None:
         self.assertTrue(hasattr(self.state, "run_preflight"), "缺少 preflight 硬门")
         self.state.initialize_launch(
@@ -500,7 +536,11 @@ class CoshHammerStateTest(unittest.TestCase):
         with mock.patch.object(
             self.state,
             "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+            return_value={
+                "status": "passed",
+                "plan_sha256": "plan-sha",
+                "coding_tasks": ["Task 1"],
+            },
         ):
             with self.assertRaisesRegex(self.state.CoshHammerError, "locations"):
                 self.state.activate_coding(
@@ -517,8 +557,79 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(result["current_task"], "H1-S1")
         ownership = json.loads((coding / "ownership.json").read_text(encoding="utf-8"))
         tasks = json.loads((coding / "tasks.json").read_text(encoding="utf-8"))
-        self.assertEqual(ownership["hammer_task"], "Task 1")
+        self.assertEqual(ownership["hammer_entry_task"], "Task 1")
+        self.assertEqual(ownership["scope"], "full_coding_stage")
+        self.assertEqual(tasks["schema_version"], 2)
         self.assertEqual([item["status"] for item in tasks["tasks"]], ["pending", "pending"])
+
+    def test_activate_coding_builds_one_global_task_tree(self) -> None:
+        coding = self.initialize_coding_work("global-coding")
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+        }
+
+        with mock.patch.object(self.state, "verify_coding", return_value=gate):
+            result = self.state.activate_coding(
+                self.project,
+                "global-coding",
+                "Task 1",
+                self.global_coding_task_spec(),
+            )
+
+        tasks = json.loads((coding / "tasks.json").read_text(encoding="utf-8"))
+        ownership = json.loads(
+            (coding / "ownership.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["task_count"], 4)
+        self.assertEqual(result["hammer_task_count"], 3)
+        self.assertEqual(tasks["schema_version"], 2)
+        self.assertEqual(
+            tasks["hammer_task_order"], ["Task 1", "Task 2", "Task 3"]
+        )
+        self.assertEqual(ownership["scope"], "full_coding_stage")
+        self.assertEqual(ownership["hammer_entry_task"], "Task 1")
+
+    def test_activate_coding_rejects_incomplete_or_invalid_parent_mapping(self) -> None:
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+        }
+        invalid_specs = []
+
+        missing_parent = self.global_coding_task_spec()
+        missing_parent["tasks"] = missing_parent["tasks"][:-1]
+        invalid_specs.append((missing_parent, "尚未全部细化"))
+
+        unknown_parent = self.global_coding_task_spec()
+        unknown_parent["tasks"][-1]["hammer_parent"] = "Task 4"
+        invalid_specs.append((unknown_parent, "不属于 Hammer coding task"))
+
+        duplicate_id = self.global_coding_task_spec()
+        duplicate_id["tasks"][-1]["id"] = "task2-query"
+        invalid_specs.append((duplicate_id, "id 无效或重复"))
+
+        unknown_dependency = self.global_coding_task_spec()
+        unknown_dependency["tasks"][-1]["dependencies"] = ["missing-task"]
+        invalid_specs.append((unknown_dependency, "未知依赖"))
+
+        later_parent_dependency = self.global_coding_task_spec()
+        later_parent_dependency["tasks"][0]["dependencies"] = ["task2-query"]
+        invalid_specs.append((later_parent_dependency, "不能依赖后续 Hammer 父任务"))
+
+        for index, (task_spec, message) in enumerate(invalid_specs):
+            work_id = f"invalid-global-{index}"
+            self.initialize_coding_work(work_id)
+            with self.subTest(message=message):
+                with mock.patch.object(
+                    self.state, "verify_coding", return_value=gate
+                ):
+                    with self.assertRaisesRegex(self.state.CoshHammerError, message):
+                        self.state.activate_coding(
+                            self.project, work_id, "Task 1", task_spec
+                        )
 
     def test_activate_coding_rejects_tasks_without_byte_style_execution_details(self) -> None:
         self.initialize_coding_work()
@@ -536,7 +647,11 @@ class CoshHammerStateTest(unittest.TestCase):
         with mock.patch.object(
             self.state,
             "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+            return_value={
+                "status": "passed",
+                "plan_sha256": "plan-sha",
+                "coding_tasks": ["Task 1"],
+            },
         ):
             with self.assertRaisesRegex(
                 self.state.CoshHammerError, "任务说明|实施步骤|修改符号"

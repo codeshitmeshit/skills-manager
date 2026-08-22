@@ -503,81 +503,104 @@ def _validated_coding_artifacts(root: Path) -> None:
         raise CoshHammerError("Cosh 编码接管缺少 implementation-plan.md")
 
 
-def _normalized_coding_tasks(
-    task_spec: Mapping[str, Any], hammer_task: str
+def _normalize_coding_task(
+    raw: Any, parent_indexes: Mapping[str, int]
+) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise CoshHammerError("Cosh 细分任务必须是 JSON 对象")
+    task_id = raw.get("id")
+    if not isinstance(task_id, str) or not WORK_RE.fullmatch(task_id):
+        raise CoshHammerError("Cosh 细分任务 id 无效或重复")
+    parent = raw.get("hammer_parent")
+    if not isinstance(parent, str):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少 Hammer 父任务")
+    parent = _normalize_task_ref(parent)
+    if parent not in parent_indexes:
+        raise CoshHammerError(
+            f"Cosh 细分任务 {task_id} 的父任务不属于 Hammer coding task"
+        )
+    title = raw.get("title")
+    description = raw.get("description")
+    expected_files = raw.get("expected_files")
+    symbols = raw.get("symbols")
+    steps = raw.get("steps")
+    dependencies = raw.get("dependencies", [])
+    acceptance = raw.get("acceptance")
+    if not isinstance(title, str) or not title.strip():
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少标题")
+    if not isinstance(description, str) or not description.strip():
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少任务说明")
+    if not isinstance(expected_files, list) or not expected_files or not all(
+        isinstance(item, str) and item.strip() for item in expected_files
+    ):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少预计文件")
+    if not isinstance(symbols, list) or not symbols or not all(
+        isinstance(item, str) and item.strip() for item in symbols
+    ):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少修改符号")
+    if not isinstance(steps, list) or not steps or not all(
+        isinstance(item, str) and item.strip() for item in steps
+    ):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少实施步骤")
+    if not isinstance(dependencies, list) or not all(
+        isinstance(item, str) and WORK_RE.fullmatch(item) for item in dependencies
+    ):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 的依赖无效")
+    if not isinstance(acceptance, list) or not acceptance or not all(
+        isinstance(item, str) and item.strip() for item in acceptance
+    ):
+        raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少验收点")
+    task = dict(raw)
+    task.update(
+        {
+            "id": task_id,
+            "hammer_parent": parent,
+            "title": title.strip(),
+            "description": description.strip(),
+            "expected_files": [item.strip() for item in expected_files],
+            "symbols": [item.strip() for item in symbols],
+            "steps": [item.strip() for item in steps],
+            "dependencies": list(dependencies),
+            "acceptance": [item.strip() for item in acceptance],
+            "status": "pending",
+        }
+    )
+    return task
+
+
+def _normalized_global_coding_tasks(
+    task_spec: Mapping[str, Any], hammer_task_order: list[str]
 ) -> list[dict[str, Any]]:
+    parent_indexes = {task: index for index, task in enumerate(hammer_task_order)}
     raw_tasks = task_spec.get("tasks")
     if not isinstance(raw_tasks, list) or not raw_tasks:
-        raise CoshHammerError("Cosh 编码接管至少需要一个细分任务")
+        raise CoshHammerError("Cosh 全局编码任务树不能为空")
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in raw_tasks:
-        if not isinstance(raw, dict):
-            raise CoshHammerError("Cosh 细分任务必须是 JSON 对象")
-        task_id = raw.get("id")
-        if (
-            not isinstance(task_id, str)
-            or not WORK_RE.fullmatch(task_id)
-            or task_id in seen
-        ):
+        task = _normalize_coding_task(raw, parent_indexes)
+        if task["id"] in seen:
             raise CoshHammerError("Cosh 细分任务 id 无效或重复")
-        parent = raw.get("hammer_parent")
-        if not isinstance(parent, str) or _normalize_task_ref(parent) != hammer_task:
-            raise CoshHammerError("Cosh 细分任务跨越当前 Hammer 父任务")
-        title = raw.get("title")
-        description = raw.get("description")
-        expected_files = raw.get("expected_files")
-        symbols = raw.get("symbols")
-        steps = raw.get("steps")
-        dependencies = raw.get("dependencies", [])
-        acceptance = raw.get("acceptance")
-        if not isinstance(title, str) or not title.strip():
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少标题")
-        if not isinstance(description, str) or not description.strip():
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少任务说明")
-        if not isinstance(expected_files, list) or not expected_files or not all(
-            isinstance(item, str) and item.strip() for item in expected_files
-        ):
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少预计文件")
-        if not isinstance(symbols, list) or not symbols or not all(
-            isinstance(item, str) and item.strip() for item in symbols
-        ):
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少修改符号")
-        if not isinstance(steps, list) or not steps or not all(
-            isinstance(item, str) and item.strip() for item in steps
-        ):
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少实施步骤")
-        if not isinstance(dependencies, list) or not all(
-            isinstance(item, str) and WORK_RE.fullmatch(item) for item in dependencies
-        ):
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 的依赖无效")
-        if not isinstance(acceptance, list) or not acceptance or not all(
-            isinstance(item, str) and item.strip() for item in acceptance
-        ):
-            raise CoshHammerError(f"Cosh 细分任务 {task_id} 缺少验收点")
-        task = dict(raw)
-        task.update(
-            {
-                "id": task_id,
-                "hammer_parent": hammer_task,
-                "title": title.strip(),
-                "description": description.strip(),
-                "expected_files": [item.strip() for item in expected_files],
-                "symbols": [item.strip() for item in symbols],
-                "steps": [item.strip() for item in steps],
-                "dependencies": list(dependencies),
-                "acceptance": [item.strip() for item in acceptance],
-                "status": "pending",
-            }
-        )
         normalized.append(task)
-        seen.add(task_id)
+        seen.add(task["id"])
+    mapped = {task["hammer_parent"] for task in normalized}
+    missing = [parent for parent in hammer_task_order if parent not in mapped]
+    if missing:
+        raise CoshHammerError(
+            "Hammer coding task 尚未全部细化：" + ", ".join(missing)
+        )
+    by_id = {task["id"]: task for task in normalized}
     for task in normalized:
-        unknown = [item for item in task["dependencies"] if item not in seen]
-        if unknown:
-            raise CoshHammerError(
-                f"Cosh 细分任务 {task['id']} 引用了未知依赖：{', '.join(unknown)}"
-            )
+        for dependency in task["dependencies"]:
+            if dependency not in by_id:
+                raise CoshHammerError(
+                    f"Cosh 细分任务 {task['id']} 引用了未知依赖：{dependency}"
+                )
+            dependency_parent = by_id[dependency]["hammer_parent"]
+            if parent_indexes[dependency_parent] > parent_indexes[task["hammer_parent"]]:
+                raise CoshHammerError(
+                    f"Cosh 任务 {task['id']} 不能依赖后续 Hammer 父任务"
+                )
     return normalized
 
 
@@ -592,14 +615,16 @@ def activate_coding(
     gate = verify_coding(project, work_id, parent)
     root = plugin_root(project, work_id)
     _validated_coding_artifacts(root)
-    tasks = _normalized_coding_tasks(task_spec, parent)
     task_order = [
         _normalize_task_ref(item)
-        for item in gate.get("coding_tasks", [parent])
+        for item in gate.get("coding_tasks", [])
         if isinstance(item, str)
     ]
-    if parent not in task_order:
-        raise CoshHammerError("当前 Hammer task 不在已验证的编码任务顺序中")
+    if not task_order:
+        raise CoshHammerError("已验证 Handoff 缺少 Hammer coding task 顺序")
+    if parent != task_order[0]:
+        raise CoshHammerError("只有首个 Hammer coding task 可以激活全局编码阶段")
+    tasks = _normalized_global_coding_tasks(task_spec, task_order)
     ownership_path = root / "coding" / "ownership.json"
     if ownership_path.is_file():
         existing = _read_json(ownership_path)
@@ -607,8 +632,9 @@ def activate_coding(
             raise CoshHammerError("当前 Hammer 编码任务已由 Cosh 接管")
     now = _now()
     task_state = {
+        "schema_version": 2,
         "status": "running",
-        "hammer_parent": parent,
+        "hammer_task_order": task_order,
         "current_task": tasks[0]["id"],
         "tasks": tasks,
         "updated_at": now,
@@ -617,16 +643,16 @@ def activate_coding(
     if control_path.is_file():
         control = _read_json(control_path)
         control.pop("authorized_task", None)
-        if control.get("authorized_hammer_task") == parent:
-            control.pop("authorized_hammer_task", None)
     else:
         control = {"mode": "single"}
     control["updated_at"] = now
     ownership = {
+        "schema_version": 2,
         "status": "cosh_active",
+        "scope": "full_coding_stage",
         "owner": "cosh",
         "hammer_status": "paused_for_cosh",
-        "hammer_task": parent,
+        "hammer_entry_task": parent,
         "hammer_task_order": task_order,
         "plan_sha256": gate.get("plan_sha256"),
         "started_at": now,
@@ -640,6 +666,7 @@ def activate_coding(
         "hammer_task": parent,
         "current_task": tasks[0]["id"],
         "task_count": len(tasks),
+        "hammer_task_count": len(task_order),
     }
 
 
