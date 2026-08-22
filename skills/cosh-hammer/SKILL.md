@@ -41,9 +41,9 @@ description: 基于 Hammer 主流程提供独立编码插件与实时研发观�
 1. 在读取代码或运行 CodeGraph 前，先运行 `scripts/cosh_hammer_state.py verify-coding --task <Hammer Task>`；当前任务、Execute session、触发语句、work、活动 worktree 或观察板任一不一致时返回 `BLOCKED`。
 2. 只读 Hammer design、三路评审结论、plan 和当前父任务。
 3. 首次进入时按顺序生成 CodeGraph 代码事实、预计修改面、精准定位、编码计划和细分任务；随后运行 `activate-coding`，只有成功写出 `ownership.json: cosh_active` 后才允许修改业务代码。
-4. 细分任务必须包含说明、修改文件、关键符号、实施步骤、依赖和验收条件；缺项时不得开始编码。按用户在观察板选择的单独推进或连续推进方式，通过 `begin-subtask` 与 `complete-subtask` 实现当前 Hammer 父任务下的细分任务。单独推进必须逐项授权当前任务；连续推进按实时 `next_action` 自动推进当前父任务内的下一项，遇到依赖未通过、阻塞或所有权变化立即停止。
+4. 细分任务必须包含说明、修改文件、关键符号、实施步骤、依赖和验收条件；缺项时不得开始编码。按用户在观察板选择的单独推进或连续推进方式，通过 `begin-subtask` 与 `complete-subtask` 实现当前 Hammer 父任务下的细分任务。单独推进既要逐项授权当前细分任务，也要在父任务全部通过后单独授权进入紧邻的下一个 Hammer 父任务；连续推进才允许按实时 `next_action` 自动跨过这两层边界。遇到依赖未通过、阻塞或所有权变化立即停止。
 5. 细分任务只记录 checkpoint；完成当前 Hammer 父任务的全部细分任务后，才创建一个符合 Hammer 契约的父任务 commit。
-6. 全部细分任务通过并形成当前 Hammer 父任务 commit 后运行 `complete-coding`，生成标准 `DONE`、`next_action: hammer_continue_after_coding` handoff；若绑定 Meego 则携带该 ID。此前 Hammer 不得恢复编码调度。
+6. 全部细分任务通过并形成当前 Hammer 父任务 commit 后运行 `complete-coding`。若存在下一个父任务，单独模式必须先通过观察板执行 `authorize-hammer-task`；没有授权时返回 `BLOCKED`，即使 Hammer session 已提前指向下一任务，`verify-coding` 也必须拒绝。合法完成后生成标准 `DONE`、`next_action: hammer_continue_after_coding` handoff；若绑定 Meego 则携带该 ID。此前 Hammer 不得恢复编码调度。
 7. Hammer 消费 `DONE` 后把当前 coding task 视为已由 Cosh 完成，继续下一个 Hammer task；全部 coding task 完成后跳出编码阶段，进入远程 UT、CI、最终 CR、BOE/E2E、验收、上报、MR 与归档等 Hammer 原生流程。
 
 Hammer 已完成 Design/Plan 但本插件尚未初始化时，使用 `attach-existing-hammer` 迟到接入。它只能创建 `.cosh/**`、启动观察板并输出 Plan 修复要求；不得修改 `.hammer/**`。修复 Hammer Plan 后仍须依次通过 `verify-handoff` 与 `verify-coding`。

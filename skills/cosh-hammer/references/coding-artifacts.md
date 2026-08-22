@@ -12,6 +12,6 @@
 - `checkpoints/`：细分任务的快照、验证与授权记录，不冒充 Hammer commit。
 - `parent-handoffs/`：返回 Hammer 的父任务 `DONE`/`BLOCKED` 摘要；入口已绑定 Meego 时携带 `launch.json` 中的 Meego ID，未绑定时省略。
 
-生成前四类产物和细分任务后必须调用 `activate-coding`。每个细分任务通过 `begin-subtask`/`complete-subtask` 改变状态；不得直接手改 `tasks.json` 冒充推进。单独模式每项都等待观察板授权；连续模式根据实时投影的 `coding.next_action` 在当前 Hammer 父任务内循环开始下一项，遇到 blocked 或所有任务完成即停止。全部通过后形成父任务 commit，再调用 `complete-coding` 生成 `DONE` handoff。
+生成前四类产物和细分任务后必须调用 `activate-coding`。每个细分任务通过 `begin-subtask`/`complete-subtask` 改变状态；不得直接手改 `tasks.json` 冒充推进。单独模式每项都等待观察板授权；父任务全部通过且仍有下一个 Hammer 父任务时，还必须执行 `authorize-hammer-task`，且只能授权紧邻下一项。连续模式根据实时投影的 `coding.next_action` 自动消费细分任务与父任务边界，遇到 blocked 或所有权变化即停止。全部通过后形成父任务 commit，再调用 `complete-coding` 生成 `DONE` handoff。
 
 预计修改面或细分任务跨越当前 Hammer 父任务边界时，属于重大决策，必须中断询问。

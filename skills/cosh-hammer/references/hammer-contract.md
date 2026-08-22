@@ -19,7 +19,7 @@ Hammer 独占以下内容：
 
 编码模式只返回 Hammer 已接受的 `DONE` 或 `BLOCKED`。返回内容应包含当前 Hammer 父任务、代码快照/commit、插件 checkpoint 摘要和阻塞原因；入口已绑定 Meego 时还应从 `launch.json` 原样携带 Meego ID，未绑定时省略且不得阻塞。不得发明新的 Hammer 状态。
 
-Hammer 分发 coding task 后暂停其原生编码 worker，只保留主流程控制器等待 Cosh。Cosh 通过 `activate-coding` 取得当前父任务的临时编码所有权；`complete-coding` 返回 `status: DONE` 与 `next_action: hammer_continue_after_coding` 后，Hammer 才把该 coding task 视为完成并继续。Cosh 不直接写 Hammer session，也不自行推进 Hammer Gate。
+Hammer 分发 coding task 后暂停其原生编码 worker，只保留主流程控制器等待 Cosh。Cosh 通过 `activate-coding` 取得当前父任务的临时编码所有权；`complete-coding` 返回 `status: DONE` 与 `next_action: hammer_continue_after_coding` 后，Hammer 才把该 coding task 视为完成并继续。单独模式下，该 `DONE` 在存在下一父任务时还依赖插件侧 `authorize-hammer-task`，而下一次 `verify-coding` 会再次校验同一授权并在激活时消费它；Hammer 自行改变 session 不能绕过。Cosh 不直接写 Hammer session，也不自行推进 Hammer Gate。
 
 ## Meego 弱绑定
 

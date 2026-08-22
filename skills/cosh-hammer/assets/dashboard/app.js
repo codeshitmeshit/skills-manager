@@ -372,6 +372,20 @@ function renderCoding(data) {
       authorize.addEventListener("click", () => postControl({ action: "authorize-task", task: current.id }).catch(error => alert(error.message)));
       actions.append(authorize);
     }
+    const nextHammerTask = data.coding?.next_hammer_task;
+    const needsHammerTaskAuthorization = data.control?.mode !== "continuous"
+      && data.coding?.next_action === "await_hammer_task_authorization"
+      && nextHammerTask;
+    if (needsHammerTaskAuthorization) {
+      const authorizeParent = element("button", "authorize", `授权进入 ${nextHammerTask}`);
+      authorizeParent.type = "button";
+      authorizeParent.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
+      authorizeParent.addEventListener("click", () => postControl({
+        action: "authorize-hammer-task",
+        task: nextHammerTask,
+      }).catch(error => alert(error.message)));
+      actions.append(authorizeParent);
+    }
     settings.append(settingCopy, actions);
     fragment.append(settings);
     const selectedTask = tasks.find(task => task.id === selectedCodingTaskId)

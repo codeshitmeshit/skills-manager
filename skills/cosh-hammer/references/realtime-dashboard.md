@@ -19,7 +19,7 @@
 
 三路评审页必须识别 `.hammer/design/reviews/<round>/` 下的 `general.md`、`security.md` 与 `stability.md`，按最新轮次优先展示每路 `status`、`review_pass`、`review_mode`、`blocking_issue_count`、`max_severity`、`unresolved_finding_ids` 和原文入口。该 round 目录中的设计快照与 `routing.json` 也归为评审产物，不得误放在设计页。兼容旧版 `.hammer/design/{review,security-review,stability-review}.md`。
 
-编码推进设置不是全局时间线控件：只在“编码”页、已经生成细分任务且 `ownership.status=cosh_active` 时可操作，并明确展示“Hammer 已暂停编码，Cosh 正在执行细分任务”。编码区采用与字节流程一致的主从布局：左侧为紧凑任务轨迹，右侧固定展示选中或当前任务的完整详情。页面必须实时展示任务总数、已完成数、进度条、下一动作，以及每项任务的说明、修改文件、关键符号、实施步骤、依赖、验收条件、状态和完成证据；当前任务需突出标识。逐一任务模式仅在当前 pending 任务尚未授权时显示授权按钮，且不能提前授权未来任务；连续模式不显示授权按钮，并由编码 worker 按持久化 `next_action` 连续消费当前父任务内的下一项。`returned_to_hammer` 后所有推进控件禁用并提示等待 Hammer 进入下一阶段。其他 Hammer 阶段页面只读，不得出现插件推进控制。
+编码推进设置不是全局时间线控件：只在“编码”页、已经生成细分任务且 `ownership.status=cosh_active` 时可操作，并明确展示“Hammer 已暂停编码，Cosh 正在执行细分任务”。编码区采用与字节流程一致的主从布局：左侧为紧凑任务轨迹，右侧固定展示选中或当前任务的完整详情。页面必须实时展示任务总数、已完成数、进度条、下一动作，以及每项任务的说明、修改文件、关键符号、实施步骤、依赖、验收条件、状态和完成证据；当前任务需突出标识。逐一任务模式在细分任务边界显示当前任务授权，父任务全部通过后显示“授权进入 Task N”，且后端只能接受紧邻的下一 Hammer 父任务；连续模式不显示这些授权按钮，并由编码 worker按持久化 `next_action` 连续消费两层边界。`returned_to_hammer` 后所有推进控件禁用并提示等待 Hammer 进入下一阶段。其他 Hammer 阶段页面只读，不得出现插件推进控制。
 
 旧版 `tasks.json` 仅做兼容投影：`completed`、`done` 等历史状态可归一显示为 `passed` 并参与进度计算，缺失的详细字段明确标记为“旧版快照未记录”。若同时缺少 `ownership.json`，页面必须标记旧版只读快照、禁用推进控制并输出 `legacy_snapshot_readonly`；不得据此补写或伪造 `cosh_active`。
 

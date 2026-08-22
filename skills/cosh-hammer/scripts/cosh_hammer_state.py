@@ -423,6 +423,19 @@ def _normalize_task_ref(value: str) -> str:
     return f"Task {match.group(1)}"
 
 
+def _parent_handoff_name(task_ref: str) -> str:
+    return _normalize_task_ref(task_ref).lower().replace(" ", "-") + ".json"
+
+
+def _next_hammer_task(task_order: list[str], current: str) -> str | None:
+    normalized = [_normalize_task_ref(item) for item in task_order]
+    try:
+        index = normalized.index(_normalize_task_ref(current))
+    except ValueError:
+        raise CoshHammerError("当前 Hammer task 不在 Cosh 编码任务顺序中")
+    return normalized[index + 1] if index + 1 < len(normalized) else None
+
+
 def verify_coding(project: Path, work_id: str, task_ref: str) -> dict[str, Any]:
     project = project.resolve()
     requested = _normalize_task_ref(task_ref)
@@ -446,6 +459,20 @@ def verify_coding(project: Path, work_id: str, task_ref: str) -> dict[str, Any]:
         )
     if not current_stage or "coding" not in current_stage.lower() or next_action != "run-step-4":
         raise CoshHammerError("Hammer Execute 当前不处于 coding task 调度阶段")
+    task_order = [_normalize_task_ref(item) for item in handoff["coding_tasks"]]
+    task_index = task_order.index(requested)
+    if task_index > 0:
+        previous = task_order[task_index - 1]
+        previous_path = root / "coding" / "parent-handoffs" / _parent_handoff_name(previous)
+        if not previous_path.is_file() or _read_json(previous_path).get("status") != "DONE":
+            raise CoshHammerError(f"前一个 Hammer 编码任务尚未完成：{previous}")
+        control_path = root / "coding" / "control.json"
+        control = _read_json(control_path) if control_path.is_file() else {"mode": "single"}
+        mode = control.get("mode", "single")
+        if mode == "single" and control.get("authorized_hammer_task") != requested:
+            raise CoshHammerError(f"单独推进模式未授权进入 {requested}")
+        if mode not in {"single", "continuous"}:
+            raise CoshHammerError("Cosh 编码推进模式无效")
     result = {
         "status": "passed",
         "gate": "coding-dispatch",
@@ -453,6 +480,7 @@ def verify_coding(project: Path, work_id: str, task_ref: str) -> dict[str, Any]:
         "project": str(project),
         "active_project": str(active_project),
         "hammer_task": current,
+        "coding_tasks": task_order,
         "next_action": next_action,
         "plan_sha256": handoff["plan_sha256"],
         "checked_at": _now(),
@@ -565,6 +593,13 @@ def activate_coding(
     root = plugin_root(project, work_id)
     _validated_coding_artifacts(root)
     tasks = _normalized_coding_tasks(task_spec, parent)
+    task_order = [
+        _normalize_task_ref(item)
+        for item in gate.get("coding_tasks", [parent])
+        if isinstance(item, str)
+    ]
+    if parent not in task_order:
+        raise CoshHammerError("当前 Hammer task 不在已验证的编码任务顺序中")
     ownership_path = root / "coding" / "ownership.json"
     if ownership_path.is_file():
         existing = _read_json(ownership_path)
@@ -582,6 +617,8 @@ def activate_coding(
     if control_path.is_file():
         control = _read_json(control_path)
         control.pop("authorized_task", None)
+        if control.get("authorized_hammer_task") == parent:
+            control.pop("authorized_hammer_task", None)
     else:
         control = {"mode": "single"}
     control["updated_at"] = now
@@ -590,6 +627,7 @@ def activate_coding(
         "owner": "cosh",
         "hammer_status": "paused_for_cosh",
         "hammer_task": parent,
+        "hammer_task_order": task_order,
         "plan_sha256": gate.get("plan_sha256"),
         "started_at": now,
         "updated_at": now,
@@ -758,7 +796,7 @@ def complete_coding(
 ) -> dict[str, Any]:
     project = project.resolve()
     parent = _normalize_task_ref(hammer_task)
-    root, ownership, state, _control = _coding_context(project, work_id)
+    root, ownership, state, control = _coding_context(project, work_id)
     if ownership.get("hammer_task") != parent:
         raise CoshHammerError("交还目标与当前 Hammer 父任务不一致")
     raw_tasks = state.get("tasks")
@@ -767,6 +805,15 @@ def complete_coding(
         for item in raw_tasks
     ):
         raise CoshHammerError("Cosh 细分任务尚未全部通过，不能交还 Hammer")
+    raw_order = ownership.get("hammer_task_order", [parent])
+    if not isinstance(raw_order, list) or not all(isinstance(item, str) for item in raw_order):
+        raise CoshHammerError("Cosh 编码所有权缺少 Hammer task 顺序")
+    next_parent = _next_hammer_task(raw_order, parent)
+    mode = control.get("mode", "single")
+    if mode == "single" and next_parent and control.get("authorized_hammer_task") != next_parent:
+        raise CoshHammerError(f"单独推进模式需要先授权进入 {next_parent}")
+    if mode not in {"single", "continuous"}:
+        raise CoshHammerError("Cosh 编码推进模式无效")
     commit = _validate_commit(project, commit_sha)
     now = _now()
     launch = _read_json(root / "launch" / "launch.json")
@@ -778,10 +825,12 @@ def complete_coding(
         "next_action": "hammer_continue_after_coding",
         "completed_at": now,
     }
+    if next_parent:
+        result["authorized_next_hammer_task"] = next_parent
     meego = launch.get("meego")
     if isinstance(meego, dict) and meego.get("bound"):
         result["meego_id"] = meego.get("id")
-    handoff_name = parent.lower().replace(" ", "-") + ".json"
+    handoff_name = _parent_handoff_name(parent)
     _atomic_json(root / "coding" / "parent-handoffs" / handoff_name, result, owner_root=root)
     ownership.update(
         {
@@ -1440,12 +1489,35 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         1 for item in coding_tasks if str(item.get("status")) == "blocked"
     )
     mode = control.get("mode", "single")
+    next_hammer_task: str | None = None
+    if isinstance(ownership, dict) and ownership.get("status") == "cosh_active":
+        current_hammer_task = str(ownership.get("hammer_task", "")).strip()
+        raw_task_order = ownership.get("hammer_task_order")
+        if isinstance(raw_task_order, list) and all(
+            isinstance(item, str) and item.strip() for item in raw_task_order
+        ):
+            hammer_task_order = [item.strip() for item in raw_task_order]
+        else:
+            hammer_task_order = [current_hammer_task] if current_hammer_task else []
+        if current_hammer_task and current_hammer_task in hammer_task_order:
+            next_hammer_task = _next_hammer_task(
+                hammer_task_order, current_hammer_task
+            )
+    awaiting_hammer_task_authorization = bool(
+        coding_tasks
+        and completed_tasks == len(coding_tasks)
+        and next_hammer_task
+        and mode == "single"
+        and control.get("authorized_hammer_task") != next_hammer_task
+    )
     if coding_tasks and not isinstance(ownership, dict):
         coding_next_action = "legacy_snapshot_readonly"
     elif isinstance(ownership, dict) and ownership.get("status") == "returned_to_hammer":
         coding_next_action = "hammer_continue_after_coding"
     elif blocked_tasks:
         coding_next_action = "resolve_current_blocker"
+    elif awaiting_hammer_task_authorization:
+        coding_next_action = "await_hammer_task_authorization"
     elif coding_tasks and completed_tasks == len(coding_tasks):
         coding_next_action = "create_parent_commit"
     elif current_coding_task and current_coding_task.get("status") == "running":
@@ -1481,6 +1553,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             "ownership": ownership,
             "status": coding_state.get("status", "pending"),
             "next_action": coding_next_action,
+            "next_hammer_task": next_hammer_task,
             "compatibility": "legacy_task_schema" if legacy_task_schema else None,
             "progress": {
                 "completed": completed_tasks,
@@ -1576,6 +1649,33 @@ def apply_control(
             raise CoshHammerError("细分任务缺少 Hammer 父任务引用")
         verify_coding(project, work_id, hammer_parent)
         state["authorized_task"] = task.strip()
+    elif action == "authorize-hammer-task":
+        ownership = live.get("coding", {}).get("ownership")
+        if not isinstance(ownership, dict) or ownership.get("status") != "cosh_active":
+            raise CoshHammerError("当前 Hammer 编码任务没有 Cosh 活动所有权")
+        current_parent = ownership.get("hammer_task")
+        task_order = ownership.get("hammer_task_order")
+        if not isinstance(current_parent, str) or not isinstance(task_order, list) or not all(
+            isinstance(item, str) for item in task_order
+        ):
+            raise CoshHammerError("Cosh 编码所有权缺少 Hammer task 顺序")
+        requested = command.get("task")
+        if not isinstance(requested, str):
+            raise CoshHammerError("缺少下一个 Hammer task")
+        requested = _normalize_task_ref(requested)
+        expected = _next_hammer_task(task_order, current_parent)
+        if expected is None or requested != expected:
+            raise CoshHammerError("只能授权紧邻的下一个 Hammer task")
+        tasks_path = root / "coding" / "tasks.json"
+        task_state = _read_json(tasks_path) if tasks_path.is_file() else {}
+        raw_tasks = task_state.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks or any(
+            not isinstance(item, dict) or item.get("status") != "passed"
+            for item in raw_tasks
+        ):
+            raise CoshHammerError("当前 Hammer task 的 Cosh 细分任务尚未全部通过")
+        verify_coding(project, work_id, current_parent)
+        state["authorized_hammer_task"] = expected
     else:
         raise CoshHammerError("不支持的插件控制动作")
     state["updated_at"] = _now()
