@@ -655,6 +655,7 @@ def activate_coding(
         "hammer_entry_task": parent,
         "hammer_task_order": task_order,
         "plan_sha256": gate.get("plan_sha256"),
+        "active_project": gate.get("active_project", str(project)),
         "started_at": now,
         "updated_at": now,
     }
@@ -672,7 +673,7 @@ def activate_coding(
 
 def _coding_context(
     project: Path, work_id: str
-) -> tuple[Path, dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[Path, Path, dict[str, Any], dict[str, Any], dict[str, Any]]:
     project = project.resolve()
     root = plugin_root(project, work_id)
     ownership_path = root / "coding" / "ownership.json"
@@ -680,20 +681,36 @@ def _coding_context(
     if not ownership_path.is_file() or not tasks_path.is_file():
         raise CoshHammerError("当前 Hammer 编码任务尚未交给 Cosh")
     ownership = _read_json(ownership_path)
+    if ownership.get("schema_version") != 2:
+        raise CoshHammerError("旧版 Cosh 编码状态只允许只读展示")
     if ownership.get("status") != "cosh_active":
         raise CoshHammerError("当前 Hammer 编码任务不处于 Cosh 活动所有权")
-    hammer_task = ownership.get("hammer_task")
-    if not isinstance(hammer_task, str):
-        raise CoshHammerError("Cosh 编码所有权缺少 Hammer 父任务")
-    verify_coding(project, work_id, hammer_task)
+    if ownership.get("scope") != "full_coding_stage":
+        raise CoshHammerError("Cosh 编码所有权不覆盖完整编码阶段")
+    handoff = verify_handoff(project, work_id)
+    if handoff.get("plan_sha256") != ownership.get("plan_sha256"):
+        raise CoshHammerError("Hammer Plan 已变化，Cosh 全局编码所有权失效")
+    handoff_order = handoff.get("coding_tasks")
+    if handoff_order != ownership.get("hammer_task_order"):
+        raise CoshHammerError("Hammer coding task 顺序已变化")
+    active_project_raw = handoff.get("active_project")
+    if not isinstance(active_project_raw, str):
+        raise CoshHammerError("Hammer Handoff 缺少活动项目目录")
+    active_project = Path(active_project_raw).resolve()
+    if str(active_project) != ownership.get("active_project"):
+        raise CoshHammerError("Hammer 活动项目目录已变化")
     tasks = _read_json(tasks_path)
+    if tasks.get("schema_version") != 2:
+        raise CoshHammerError("旧版 Cosh 编码任务树只允许只读展示")
+    if tasks.get("hammer_task_order") != ownership.get("hammer_task_order"):
+        raise CoshHammerError("Cosh 全局任务树的 Hammer task 顺序不一致")
     control_path = root / "coding" / "control.json"
     control = _read_json(control_path) if control_path.is_file() else {"mode": "single"}
-    return root, ownership, tasks, control
+    return root, active_project, ownership, tasks, control
 
 
 def begin_subtask(project: Path, work_id: str, task_id: str) -> dict[str, Any]:
-    root, ownership, state, control = _coding_context(project, work_id)
+    root, _active_project, ownership, state, control = _coding_context(project, work_id)
     if state.get("current_task") != task_id:
         raise CoshHammerError("只能开始当前 Cosh 细分任务")
     raw_tasks = state.get("tasks")
@@ -746,7 +763,7 @@ def complete_subtask(
         raise CoshHammerError("Cosh 细分任务结果只能是 passed 或 blocked")
     if not isinstance(evidence, Mapping) or not evidence:
         raise CoshHammerError("Cosh 细分任务完成必须提供证据")
-    root, ownership, state, control = _coding_context(project, work_id)
+    root, active_project, ownership, state, control = _coding_context(project, work_id)
     if state.get("current_task") != task_id:
         raise CoshHammerError("只能完成当前 Cosh 细分任务")
     raw_tasks = state.get("tasks")
@@ -759,14 +776,36 @@ def complete_subtask(
     if selected is None or selected.get("status") != "running":
         raise CoshHammerError("当前 Cosh 细分任务尚未开始")
     now = _now()
-    selected["status"] = status
-    selected["completed_at"] = now
-    selected["evidence"] = dict(evidence)
+    checkpoint: dict[str, Any] = {
+        "task": task_id,
+        "hammer_parent": selected["hammer_parent"],
+        "status": status,
+        "evidence": dict(evidence),
+        "completed_at": now,
+    }
     if status == "blocked":
         next_task = None
+        selected["status"] = status
+        selected["completed_at"] = now
+        selected["evidence"] = dict(evidence)
         state["current_task"] = task_id
         state["status"] = "blocked"
     else:
+        snapshot = _task_delivery_snapshot(active_project, selected, raw_tasks)
+        commit = _commit_subtask(
+            active_project, work_id, selected, evidence, snapshot=snapshot
+        )
+        checkpoint.update(snapshot)
+        checkpoint["commit_sha"] = commit
+        _atomic_json(
+            root / "coding" / "checkpoints" / f"{task_id}.json",
+            checkpoint,
+            owner_root=root,
+        )
+        selected["status"] = status
+        selected["completed_at"] = now
+        selected["evidence"] = dict(evidence)
+        selected["commit_sha"] = commit
         next_task = next(
             (
                 item
@@ -783,21 +822,117 @@ def complete_subtask(
         control.pop("authorized_task", None)
         control["updated_at"] = now
         _atomic_json(root / "coding" / "control.json", control, owner_root=root)
-    checkpoint = {
-        "task": task_id,
-        "hammer_parent": ownership["hammer_task"],
-        "status": status,
-        "evidence": dict(evidence),
-        "completed_at": now,
-    }
-    _atomic_json(root / "coding" / "checkpoints" / f"{task_id}.json", checkpoint, owner_root=root)
+    if status == "blocked":
+        _atomic_json(
+            root / "coding" / "checkpoints" / f"{task_id}.json",
+            checkpoint,
+            owner_root=root,
+        )
     _atomic_json(root / "coding" / "tasks.json", state, owner_root=root)
     _atomic_json(root / "coding" / "ownership.json", ownership, owner_root=root)
-    return {
+    result = {
         "status": state["status"],
         "completed_task": task_id,
         "current_task": state["current_task"],
     }
+    if status == "passed":
+        result["commit_sha"] = checkpoint["commit_sha"]
+    return result
+
+
+def _staged_paths(project: Path) -> list[str]:
+    output = _git_bytes(project, "diff", "--cached", "--name-only", "-z")
+    return sorted(path.decode("utf-8") for path in output.split(b"\0") if path)
+
+
+def _unstaged_and_untracked_paths(project: Path) -> list[str]:
+    tracked = _git_bytes(project, "diff", "--name-only", "-z")
+    untracked = _git_bytes(
+        project, "ls-files", "--others", "--exclude-standard", "-z"
+    )
+    return sorted(
+        {
+            path.decode("utf-8")
+            for path in (*tracked.split(b"\0"), *untracked.split(b"\0"))
+            if path
+        }
+    )
+
+
+def _staged_snapshot_sha(project: Path) -> str:
+    head = _git_output(project, "rev-parse", "HEAD")
+    patch = _git_bytes(project, "diff", "--cached", "--binary", "HEAD", "--")
+    return hashlib.sha256(head.encode("utf-8") + b"\0" + patch).hexdigest()
+
+
+def _task_delivery_snapshot(
+    project: Path,
+    task: Mapping[str, Any],
+    all_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    staged = _staged_paths(project)
+    if not staged:
+        raise CoshHammerError("当前 Cosh 任务暂存区为空")
+    expected = set(task.get("expected_files", []))
+    out_of_scope = [path for path in staged if path not in expected]
+    if out_of_scope:
+        raise CoshHammerError(
+            "暂存路径超出当前任务范围：" + ", ".join(out_of_scope)
+        )
+    try:
+        current_index = next(
+            index for index, item in enumerate(all_tasks) if item.get("id") == task.get("id")
+        )
+    except StopIteration as error:
+        raise CoshHammerError("当前 Cosh 任务不在全局任务树中") from error
+    protected_paths = {
+        path
+        for future_task in all_tasks[current_index:]
+        for path in future_task.get("expected_files", [])
+        if isinstance(path, str)
+    }
+    dirty = [
+        path
+        for path in _unstaged_and_untracked_paths(project)
+        if path in protected_paths
+    ]
+    if dirty:
+        raise CoshHammerError(
+            "工作区存在当前或未来任务的未暂存改动：" + ", ".join(dirty)
+        )
+    return {
+        "staged_files": staged,
+        "snapshot_sha": _staged_snapshot_sha(project),
+    }
+
+
+def _commit_subtask(
+    project: Path,
+    work_id: str,
+    task: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+    *,
+    snapshot: Mapping[str, Any],
+) -> str:
+    del evidence, snapshot
+    task_id = str(task["id"])
+    parent = str(task["hammer_parent"])
+    subject = f"feat(cosh-hammer): 完成 {task_id}"
+    body = (
+        f"Cosh-Work: {work_id}\n"
+        f"Cosh-Task: {task_id}\n"
+        f"Hammer-Parent: {parent}"
+    )
+    result = subprocess.run(
+        ["git", "-C", str(project), "commit", "-m", subject, "-m", body],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or "未知 Git 错误"
+        raise CoshHammerError(f"Cosh 任务提交失败：{detail}")
+    return _git_output(project, "rev-parse", "HEAD")
 
 
 def _validate_commit(project: Path, commit_sha: str) -> str:
@@ -1053,6 +1188,22 @@ def _git_output(project: Path, *args: str) -> str:
         detail = result.stderr.strip() or result.stdout.strip() or "未知 Git 错误"
         raise CoshHammerError(f"无法校验 Hammer worktree：{detail}")
     return result.stdout.strip()
+
+
+def _git_bytes(project: Path, *args: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(project), *args],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode:
+        detail = (
+            result.stderr.decode("utf-8", errors="replace").strip()
+            or result.stdout.decode("utf-8", errors="replace").strip()
+            or "未知 Git 错误"
+        )
+        raise CoshHammerError(f"无法读取 Git 交付快照：{detail}")
+    return result.stdout
 
 
 def _git_common_dir(project: Path) -> Path:
