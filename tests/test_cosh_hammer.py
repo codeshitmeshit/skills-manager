@@ -399,6 +399,34 @@ class CoshHammerStateTest(unittest.TestCase):
         )
         return coding
 
+    def complete_global_delivery_tasks(self, work_id: str) -> tuple[pathlib.Path, list[str]]:
+        coding = self.activate_global_delivery_work(work_id)
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+        commits = []
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            for task in self.global_coding_task_spec()["tasks"]:
+                task_id = task["id"]
+                self.state.begin_subtask(self.project, work_id, task_id)
+                delivery = self.project / task["expected_files"][0]
+                delivery.write_text(
+                    f"package delivery\n// {work_id}:{task_id}\n", encoding="utf-8"
+                )
+                self.git("add", task["expected_files"][0])
+                result = self.state.complete_subtask(
+                    self.project,
+                    work_id,
+                    task_id,
+                    status="passed",
+                    evidence={"acceptance": "passed"},
+                )
+                commits.append(result["commit_sha"])
+        return coding, commits
+
     def test_preflight_fails_closed_when_dashboard_is_unavailable(self) -> None:
         self.assertTrue(hasattr(self.state, "run_preflight"), "缺少 preflight 硬门")
         self.state.initialize_launch(
@@ -1040,155 +1068,89 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["current_task"], "H1-S1")
 
-    def test_complete_coding_returns_done_only_after_all_cosh_subtasks_pass(self) -> None:
-        coding = self.initialize_coding_work()
-        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Cosh Test"], check=True)
-        subprocess.run(["git", "-C", str(self.project), "config", "user.email", "cosh@example.com"], check=True)
-        (self.project / "service.go").write_text("package service\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.project), "add", "service.go"], check=True)
-        subprocess.run(["git", "-C", str(self.project), "commit", "-qm", "coding result"], check=True)
-        commit_sha = subprocess.run(
-            ["git", "-C", str(self.project), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        with mock.patch.object(
-            self.state,
-            "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
-        ):
-            self.state.activate_coding(
-                self.project, "coding-work", "Task 1", self.coding_task_spec()
-            )
-            self.state.apply_control(
-                self.project, "coding-work", {"action": "set-mode", "mode": "continuous"}
-            )
-            with self.assertRaisesRegex(self.state.CoshHammerError, "全部通过"):
-                self.state.complete_coding(
-                    self.project, "coding-work", "Task 1", commit_sha=commit_sha
-                )
-            for task_id in ("H1-S1", "H1-S2"):
-                self.state.begin_subtask(self.project, "coding-work", task_id)
-                self.state.complete_subtask(
-                    self.project,
-                    "coding-work",
-                    task_id,
-                    status="passed",
-                    evidence={"summary": f"{task_id} 完成"},
-                )
-            result = self.state.complete_coding(
-                self.project, "coding-work", "Task 1", commit_sha=commit_sha
-            )
-
-        self.assertEqual(result["status"], "DONE")
-        self.assertEqual(result["next_action"], "hammer_continue_after_coding")
-        ownership = json.loads((coding / "ownership.json").read_text(encoding="utf-8"))
-        self.assertEqual(ownership["status"], "returned_to_hammer")
-
-    def test_single_mode_blocks_parent_handoff_until_next_hammer_task_is_authorized(self) -> None:
-        coding = self.initialize_coding_work()
-        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Cosh Test"], check=True)
-        subprocess.run(["git", "-C", str(self.project), "config", "user.email", "cosh@example.com"], check=True)
-        (self.project / "service.go").write_text("package service\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.project), "add", "service.go"], check=True)
-        subprocess.run(["git", "-C", str(self.project), "commit", "-qm", "task 1"], check=True)
-        commit_sha = subprocess.run(
-            ["git", "-C", str(self.project), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+    def test_complete_coding_returns_one_global_handoff(self) -> None:
+        self.initialize_git_repository()
+        self.activate_global_delivery_work("global-coding")
         gate = {
             "status": "passed",
             "plan_sha256": "plan-sha",
-            "coding_tasks": ["Task 1", "Task 2"],
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
         }
-        with mock.patch.object(self.state, "verify_coding", return_value=gate):
-            self.state.activate_coding(
-                self.project, "coding-work", "Task 1", self.coding_task_spec()
-            )
-            for task_id in ("H1-S1", "H1-S2"):
-                self.state.apply_control(
-                    self.project,
-                    "coding-work",
-                    {"action": "authorize-task", "task": task_id},
-                )
-                self.state.begin_subtask(self.project, "coding-work", task_id)
-                self.state.complete_subtask(
-                    self.project,
-                    "coding-work",
-                    task_id,
-                    status="passed",
-                    evidence={"summary": f"{task_id} 完成"},
-                )
-            waiting = self.state.build_status(self.project, "coding-work")
-            self.assertEqual(
-                waiting["coding"]["next_action"],
-                "await_hammer_task_authorization",
-            )
-            self.assertEqual(waiting["coding"]["next_hammer_task"], "Task 2")
-            with self.assertRaisesRegex(self.state.CoshHammerError, "授权.*Task 2"):
-                self.state.complete_coding(
-                    self.project, "coding-work", "Task 1", commit_sha=commit_sha
-                )
-            self.state.apply_control(
-                self.project,
-                "coding-work",
-                {"action": "authorize-hammer-task", "task": "Task 2"},
-            )
-            result = self.state.complete_coding(
-                self.project, "coding-work", "Task 1", commit_sha=commit_sha
-            )
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "尚未全部通过"):
+                self.state.complete_coding(self.project, "global-coding")
 
-        self.assertEqual(result["status"], "DONE")
-        self.assertEqual(result["authorized_next_hammer_task"], "Task 2")
-        control = json.loads((coding / "control.json").read_text(encoding="utf-8"))
-        self.assertEqual(control["authorized_hammer_task"], "Task 2")
+        coding, commits = self.complete_global_delivery_tasks("completed-global")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            done = self.state.complete_coding(self.project, "completed-global")
 
-    def test_verify_coding_rejects_unapproved_next_hammer_task_even_if_hammer_advanced(self) -> None:
-        self.state.initialize_launch(
-            self.project,
-            work_id="handoff-work",
-            refined_requirement="接管 Hammer 编码任务。",
-            source={"kind": "text", "value": "接管编码任务"},
-            hammer_root=self.hammer_root,
+        self.assertEqual(done["status"], "DONE")
+        self.assertEqual(
+            done["completed_hammer_tasks"], ["Task 1", "Task 2", "Task 3"]
         )
-        self.write_ready_plan(self.project, task_count=2)
-        execute = self.project / ".hammer" / "execute"
-        execute.mkdir()
-        (execute / "session.md").write_text(
-            "# Execute\n\n- current_stage: Coding Tasks\n"
-            "- current_task_ref: Task 2\n- next_action: run-step-4\n- blocker: none\n",
-            encoding="utf-8",
+        self.assertEqual(done["next_action"], "hammer_continue_after_coding_stage")
+        self.assertEqual(
+            done["task_commits"],
+            [
+                {"task": task["id"], "commit_sha": commit}
+                for task, commit in zip(self.global_coding_task_spec()["tasks"], commits)
+            ],
         )
-        root = self.project / ".cosh" / "hammer-plugin" / "handoff-work"
-        handoffs = root / "coding" / "parent-handoffs"
-        handoffs.mkdir(parents=True)
-        (handoffs / "task-1.json").write_text(
-            json.dumps({"status": "DONE", "hammer_task": "Task 1"}),
-            encoding="utf-8",
-        )
-        payload = self.dashboard_payload()
-        with mock.patch.object(
-            self.state,
-            "_dashboard_payload",
-            side_effect=lambda _project, _work, endpoint: payload[endpoint],
-        ):
-            with self.assertRaisesRegex(self.state.CoshHammerError, "未授权.*Task 2"):
-                self.state.verify_coding(self.project, "handoff-work", "Task 2")
-            control = root / "coding" / "control.json"
-            control.write_text(
-                json.dumps({"mode": "single", "authorized_hammer_task": "Task 2"}),
-                encoding="utf-8",
-            )
-            result = self.state.verify_coding(
-                self.project, "handoff-work", "Task 2"
-            )
+        self.assertTrue((coding / "coding-stage-handoff.json").is_file())
+        self.assertFalse((coding / "parent-handoffs" / "task-1.json").exists())
+        ownership = json.loads((coding / "ownership.json").read_text(encoding="utf-8"))
+        self.assertEqual(ownership["status"], "returned_to_hammer")
 
-        self.assertEqual(result["hammer_task"], "Task 2")
+    def test_complete_coding_reconciles_every_task_checkpoint(self) -> None:
+        self.initialize_git_repository()
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+
+        coding, _commits = self.complete_global_delivery_tasks("missing-checkpoint")
+        (coding / "checkpoints" / "task2-query.json").unlink()
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "缺少 checkpoint"):
+                self.state.complete_coding(self.project, "missing-checkpoint")
+
+        coding, commits = self.complete_global_delivery_tasks("mismatched-checkpoint")
+        checkpoint_path = coding / "checkpoints" / "task3-consumer.json"
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        checkpoint["commit_sha"] = commits[-2]
+        checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "checkpoint.*commit"):
+                self.state.complete_coding(self.project, "mismatched-checkpoint")
+
+        coding, _commits = self.complete_global_delivery_tasks("unreachable-commit")
+        orphan = self.git("commit-tree", "HEAD^{tree}", "-m", "orphan")
+        checkpoint_path = coding / "checkpoints" / "task3-consumer.json"
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        checkpoint["commit_sha"] = orphan
+        checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+        tasks_path = coding / "tasks.json"
+        tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+        tasks["tasks"][-1]["commit_sha"] = orphan
+        tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "Git 历史"):
+                self.state.complete_coding(self.project, "unreachable-commit")
+
+        self.complete_global_delivery_tasks("stale-plan")
+        stale_gate = dict(gate, plan_sha256="changed-plan-sha")
+        with mock.patch.object(self.state, "verify_handoff", return_value=stale_gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "Plan 已变化"):
+                self.state.complete_coding(self.project, "stale-plan")
+
+        self.complete_global_delivery_tasks("head-mismatch")
+        self.git("commit", "--allow-empty", "-m", "unrelated commit")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "HEAD"):
+                self.state.complete_coding(self.project, "head-mismatch")
 
     def test_attach_existing_hammer_initializes_only_cosh_and_reports_plan_repair(self) -> None:
         self.assertTrue(
@@ -1274,18 +1236,14 @@ class CoshHammerStateTest(unittest.TestCase):
             "complete-subtask",
         )
         self.assertEqual(
-            parser.parse_args(
-                [
-                    "complete-coding",
-                    *common,
-                    "--task",
-                    "Task 1",
-                    "--commit-sha",
-                    "0" * 40,
-                ]
-            ).command,
+            parser.parse_args(["complete-coding", *common]).command,
             "complete-coding",
         )
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(
+                    ["complete-coding", *common, "--task", "Task 1"]
+                )
 
     def test_dashboard_projects_cosh_ownership_and_only_enables_coding_controls_when_active(self) -> None:
         self.initialize_coding_work()
@@ -1341,7 +1299,7 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertIn("verify-handoff", launch["hammer_prompt"])
         self.assertIn("verify-coding", launch["hammer_prompt"])
         self.assertIn("暂停 Hammer 的原生编码执行", launch["hammer_prompt"])
-        self.assertIn("hammer_continue_after_coding", launch["hammer_prompt"])
+        self.assertIn("hammer_continue_after_coding_stage", launch["hammer_prompt"])
         state_root = self.project / ".cosh" / "hammer-plugin" / "order-risk"
         self.assertTrue((state_root / "launch" / "request.md").is_file())
         self.assertTrue((state_root / "launch" / "launch.json").is_file())
