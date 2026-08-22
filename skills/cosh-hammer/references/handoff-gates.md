@@ -4,61 +4,44 @@
 
 严格按以下顺序执行，任一步失败都停止：
 
-1. `cosh_hammer_state.py init`：生成 `.cosh/hammer-plugin/<work-id>/launch/launch.json`，固化 project、work、Hammer 根目录、Meego 和 worktree 决策，并生成含编码触发语句的 Hammer prompt。
-2. `start_cosh_hammer_dashboard.py`：只允许 `127.0.0.1:57172`，等待 `/healthz` 返回当前 project/work 并输出 `READY`。
-3. `cosh_hammer_state.py preflight`：复核 launch、观察板身份和 prompt；成功证据写入 `gates/preflight.json`。
+1. `cosh_hammer_state.py init`：固化 project、work、Hammer 根目录、Meego、worktree 决策和 Hammer prompt。
+2. `start_cosh_hammer_dashboard.py`：只允许 `127.0.0.1:57172`；`/healthz` 匹配当前 project/work 并输出 `READY`。
+3. `cosh_hammer_state.py preflight`：复核 launch、观察板身份和 prompt，写入 `gates/preflight.json`。
 4. 把 `launch.json.hammer_prompt` 原样交给 Hammer。
 
-禁止在第 3 步通过前调用 Hammer，也禁止先调用、稍后补接。
+禁止在第 3 步通过前调用 Hammer，也禁止先调用后补接。
 
-## Plan 到 Execute
+## Plan 到全局编码阶段
 
-Hammer Plan Ready 后运行：
+Hammer Plan Ready 后运行 `verify-handoff --project <repo> --work <work-id>`，同时确认 Plan/handoff 状态、SHA、全量 lint/review evidence、每个 coding task 的 Cosh 触发语句、活动目录/worktree 与非 stale 观察板。缺一项返回 `BLOCKED`，插件不得改写 `.hammer/plan/**`。
 
-```bash
-python3 <skill-root>/scripts/cosh_hammer_state.py verify-handoff \
-  --project <repo-absolute-path> \
-  --work <work-id>
-```
-
-校验必须同时确认：
-
-- `plan.md` 与 `handoff.json` 存在，Plan Ready 状态、SHA 和全量 lint/review evidence 有效；
-- 每个 coding task 都原样包含 `Use $cosh-hammer in coding mode for this Hammer parent task.`；
-- 当前 Hammer 活动目录与观察板 active project 一致，迁移 worktree 必须通过 Git 注册与仓库归属校验；
-- launch 和观察板状态有效且非 stale。
-
-缺一项返回 `BLOCKED`，要求 Hammer 回到 Plan 修正。插件不得改写 `.hammer/plan/**`。
-
-## 编码二次验真
-
-每个 Cosh coding worker 在读取代码、运行 CodeGraph 或创建编码产物前运行：
+Hammer Execute 到达首个 coding task 后，在读取代码或运行 CodeGraph 前运行：
 
 ```bash
 python3 <skill-root>/scripts/cosh_hammer_state.py verify-coding \
   --project <repo-absolute-path> \
   --work <work-id> \
-  --task "Task <N>"
+  --task "Task <首项>"
 ```
 
-除交接门全部条件外，还必须确认 Execute session 的 `current_task_ref`、coding stage 和 `next_action: run-step-4` 与请求任务一致。成功证据写入 `gates/coding-dispatch.json`。失败时不得开始 CodeGraph 或编码，也不得静默退化为 Hammer 原生 worker。
+该门额外确认 Execute session 的 `current_task_ref`、coding stage 和 `next_action: run-step-4`。通过后 Hammer 暂停整个编码阶段。Cosh 必须读取完整父任务顺序，一次性生成覆盖全部预计修改面的 CodeGraph/源码事实、定位、计划和详细任务树，再运行 `activate-coding`。只有 schema v2 `cosh_active + full_coding_stage` 所有权建立后才能修改业务代码。
 
-校验通过后 Hammer 暂停当前 coding task 的原生 worker。Cosh 生成四类定位/计划产物与细分任务后运行 `activate-coding`；取得 `cosh_active` 所有权前仍不得修改业务代码。全部细分任务通过后运行 `complete-coding`，Hammer 只能在消费 `DONE + hammer_continue_after_coding` handoff 后继续。
+## 执行与最终交还
 
-## 迟到接入
+每次 `begin-subtask`/`complete-subtask` 都重新确认 Plan SHA、父任务顺序、活动目录、观察板和所有权。通过任务还必须满足：暂存区非空、暂存路径只属于当前任务、当前和未来任务无相关未暂存/未跟踪改动。提交成功并写入 checkpoint 后才能解锁下一任务。
 
-Hammer 已完成 Design/Plan、但 `.cosh/hammer-plugin/<work-id>` 尚未初始化时运行：
+中间父任务通过不触发 Hammer handoff。全部任务通过后运行：
 
 ```bash
-python3 <skill-root>/scripts/cosh_hammer_state.py attach-existing-hammer \
+python3 <skill-root>/scripts/cosh_hammer_state.py complete-coding \
   --project <repo-absolute-path> \
-  --work <work-id> \
-  --requirement <refined-requirement> \
-  --hammer-root <hammer-absolute-path>
+  --work <work-id>
 ```
 
-命令只创建 `.cosh/**`、启动观察板并报告哪些 Plan coding task 缺少触发语句；不修改 `.hammer/**`。修复必须由 Hammer 回到 Plan 完成，之后仍需运行 `verify-handoff` 与 `verify-coding`。
+命令逐项校验 checkpoint、commit 可达性、提交文件、提交顺序和最终 HEAD，只写一次 `coding-stage-handoff.json`。Hammer 仅在消费 `DONE + hammer_continue_after_coding_stage` 后恢复并进入编码后 Gate。
 
-## 技术边界
+## 迟到接入与技术边界
 
-这些门禁对 Cosh 启动和接管的链路 fail closed。Skill 本身不是常驻 hook，无法拦截完全绕过 Cosh 的独立 Hammer Execute；若需要这种保证，必须由 Hammer 提供正式 task-dispatch hook，或统一通过 Cosh launcher 启动 Hammer。
+Hammer 已完成 Design/Plan 但插件未初始化时，运行 `attach-existing-hammer`。命令只创建 `.cosh/**`、启动观察板并报告 Plan 修复要求；修复由 Hammer 完成，之后仍须依次通过 `verify-handoff` 与首个 `verify-coding`。
+
+这些门禁只约束经 Cosh 启动和接管的链路。完全绕过 Cosh 的独立 Hammer Execute 需要 Hammer 正式 dispatch hook 或统一 Cosh launcher 才能进程级拦截。

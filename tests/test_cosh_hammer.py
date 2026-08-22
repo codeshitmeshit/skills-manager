@@ -35,6 +35,16 @@ def load_module(name: str, path: pathlib.Path):
 class CoshHammerSkillTest(unittest.TestCase):
     def test_skill_contract_keeps_hammer_as_unmodified_main_workflow(self) -> None:
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        references = "\n".join(
+            (SKILL_DIR / "references" / name).read_text(encoding="utf-8")
+            for name in (
+                "workflow.md",
+                "hammer-contract.md",
+                "handoff-gates.md",
+                "coding-artifacts.md",
+                "realtime-dashboard.md",
+            )
+        )
         metadata = (SKILL_DIR / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("name: cosh-hammer", skill)
         self.assertIn("$cosh-hammer", metadata)
@@ -50,6 +60,12 @@ class CoshHammerSkillTest(unittest.TestCase):
         self.assertIn("BLOCKED", skill)
         self.assertIn("远程 UT", skill)
         self.assertIn("E2E", skill)
+        self.assertIn("一次性细化全部 Hammer coding task", skill)
+        self.assertIn("整个编码阶段", skill)
+        self.assertIn("每个细分任务", skill)
+        self.assertIn("只交还一次", skill)
+        self.assertNotIn("交还当前 Hammer 父任务", skill)
+        self.assertNotIn("authorize-hammer-task", skill + references)
 
     def test_direct_resources_exist(self) -> None:
         for relative in (
@@ -854,7 +870,12 @@ class CoshHammerStateTest(unittest.TestCase):
         with mock.patch.object(
             self.state,
             "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+            return_value={
+                "status": "passed",
+                "plan_sha256": "plan-sha",
+                "coding_tasks": ["Task 1"],
+                "active_project": str(self.project.resolve()),
+            },
         ):
             self.state.activate_coding(
                 self.project, "coding-work", "Task 1", detailed
@@ -999,10 +1020,14 @@ class CoshHammerStateTest(unittest.TestCase):
 
     def test_single_mode_cannot_authorize_a_future_subtask(self) -> None:
         self.initialize_coding_work()
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1"],
+            "active_project": str(self.project.resolve()),
+        }
         with mock.patch.object(
-            self.state,
-            "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+            self.state, "verify_coding", return_value=gate
         ):
             self.state.activate_coding(
                 self.project, "coding-work", "Task 1", self.coding_task_spec()
@@ -1018,11 +1043,15 @@ class CoshHammerStateTest(unittest.TestCase):
         coding = self.initialize_coding_work()
         spec = self.coding_task_spec()
         spec["tasks"] = [spec["tasks"][1], spec["tasks"][0]]
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1"],
+            "active_project": str(self.project.resolve()),
+        }
         with mock.patch.object(
-            self.state,
-            "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
-        ):
+            self.state, "verify_coding", return_value=gate
+        ), mock.patch.object(self.state, "verify_handoff", return_value=gate):
             self.state.activate_coding(
                 self.project, "coding-work", "Task 1", spec
             )
@@ -1106,11 +1135,15 @@ class CoshHammerStateTest(unittest.TestCase):
 
     def test_blocked_subtask_does_not_advance_to_next_task(self) -> None:
         self.initialize_coding_work()
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1"],
+            "active_project": str(self.project.resolve()),
+        }
         with mock.patch.object(
-            self.state,
-            "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
-        ):
+            self.state, "verify_coding", return_value=gate
+        ), mock.patch.object(self.state, "verify_handoff", return_value=gate):
             self.state.activate_coding(
                 self.project, "coding-work", "Task 1", self.coding_task_spec()
             )
@@ -1311,7 +1344,12 @@ class CoshHammerStateTest(unittest.TestCase):
         with mock.patch.object(
             self.state,
             "verify_coding",
-            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+            return_value={
+                "status": "passed",
+                "plan_sha256": "plan-sha",
+                "coding_tasks": ["Task 1"],
+                "active_project": str(self.project.resolve()),
+            },
         ):
             self.state.activate_coding(
                 self.project, "coding-work", "Task 1", self.coding_task_spec()
