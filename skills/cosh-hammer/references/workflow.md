@@ -18,6 +18,6 @@
 
 ## 编码交接
 
-Hammer Plan Ready 后先运行 `verify-handoff`；编码父任务到达后、CodeGraph 前再运行 `verify-coding`。首次合法进入时生成全局代码事实与预计修改面；再将 Hammer 父任务细化为插件任务。单独推进模式需用户授权下一个细分任务，连续模式可在当前父任务范围内连续执行。
+Hammer Plan Ready 后先运行 `verify-handoff`；编码父任务到达后，Hammer 暂停原生 coding worker，CodeGraph 前运行 `verify-coding`。首次合法进入时生成全局代码事实与预计修改面，再将 Hammer 父任务细化为包含文件、符号、步骤、依赖和验收条件的插件任务，并运行 `activate-coding` 取得临时编码所有权。单独推进模式需用户逐项授权当前细分任务；连续模式由编码 worker 按观察板实时投影的 `next_action` 在当前父任务范围内循环推进，遇到阻塞、所有任务完成或所有权丢失时停止。
 
-插件 checkpoint 不等于 Hammer commit。当前父任务的细分任务全部完成后，按 Hammer 当前任务协议形成一个父任务 commit，并返回 `DONE`；无法满足 Hammer 契约时返回 `BLOCKED`。若入口绑定了 Meego，所有返回 Hammer 的父任务交接摘要携带同一 Meego ID；未绑定时省略，不改变交接结果。
+插件 checkpoint 不等于 Hammer commit。当前父任务的细分任务全部完成后，按 Hammer 当前任务协议形成一个父任务 commit，通过 `complete-coding` 返回 `DONE` 和 `hammer_continue_after_coding`；无法满足 Hammer 契约时返回 `BLOCKED`。Hammer 消费该 handoff 后继续下一个 coding task，全部 coding task 完成后进入编码后的原生 Gate。若入口绑定了 Meego，所有返回 Hammer 的父任务交接摘要携带同一 Meego ID；未绑定时省略，不改变交接结果。

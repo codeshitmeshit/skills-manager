@@ -259,6 +259,52 @@ class CoshHammerStateTest(unittest.TestCase):
         )
         return plan
 
+    def initialize_coding_work(self, work_id: str = "coding-work") -> pathlib.Path:
+        self.state.initialize_launch(
+            self.project,
+            work_id=work_id,
+            refined_requirement="由 Cosh 接管 Hammer 编码任务。",
+            source={"kind": "text", "value": "接管编码"},
+            hammer_root=self.hammer_root,
+        )
+        coding = self.project / ".cosh" / "hammer-plugin" / work_id / "coding"
+        coding.mkdir(parents=True, exist_ok=True)
+        for name in ("code-facts.json", "change-surface.json", "locations.json"):
+            (coding / name).write_text('{"status":"passed"}\n', encoding="utf-8")
+        (coding / "implementation-plan.md").write_text(
+            "# Implementation Plan\n\n拆分并实现当前 Hammer 父任务。\n",
+            encoding="utf-8",
+        )
+        return coding
+
+    def coding_task_spec(self) -> dict:
+        return {
+            "tasks": [
+                {
+                    "id": "H1-S1",
+                    "hammer_parent": "Task 1",
+                    "title": "实现核心逻辑",
+                    "description": "按现有调用链实现核心逻辑并保持兼容。",
+                    "expected_files": ["service.go"],
+                    "symbols": ["OrderService.Check"],
+                    "steps": ["核对现状", "实现最小改动", "记录验证证据"],
+                    "dependencies": [],
+                    "acceptance": ["核心路径通过"],
+                },
+                {
+                    "id": "H1-S2",
+                    "hammer_parent": "Task 1",
+                    "title": "补齐测试",
+                    "description": "补齐核心路径和失败路径的测试。",
+                    "expected_files": ["service_test.go"],
+                    "symbols": ["TestOrderServiceCheck"],
+                    "steps": ["补测试用例", "运行目标测试", "记录结果"],
+                    "dependencies": ["H1-S1"],
+                    "acceptance": ["测试覆盖通过"],
+                },
+            ]
+        }
+
     def test_preflight_fails_closed_when_dashboard_is_unavailable(self) -> None:
         self.assertTrue(hasattr(self.state, "run_preflight"), "缺少 preflight 硬门")
         self.state.initialize_launch(
@@ -440,6 +486,285 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(result["hammer_task"], "Task 1")
         self.assertEqual(result["next_action"], "run-step-4")
 
+    def test_activate_coding_requires_artifacts_and_creates_cosh_task_engine(self) -> None:
+        self.assertTrue(hasattr(self.state, "activate_coding"), "缺少 Cosh 编码接管入口")
+        coding = self.initialize_coding_work()
+        (coding / "locations.json").unlink()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "locations"):
+                self.state.activate_coding(
+                    self.project, "coding-work", "Task 1", self.coding_task_spec()
+                )
+            (coding / "locations.json").write_text(
+                '{"status":"passed"}\n', encoding="utf-8"
+            )
+            result = self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+
+        self.assertEqual(result["status"], "cosh_active")
+        self.assertEqual(result["current_task"], "H1-S1")
+        ownership = json.loads((coding / "ownership.json").read_text(encoding="utf-8"))
+        tasks = json.loads((coding / "tasks.json").read_text(encoding="utf-8"))
+        self.assertEqual(ownership["hammer_task"], "Task 1")
+        self.assertEqual([item["status"] for item in tasks["tasks"]], ["pending", "pending"])
+
+    def test_activate_coding_rejects_tasks_without_byte_style_execution_details(self) -> None:
+        self.initialize_coding_work()
+        incomplete = {
+            "tasks": [
+                {
+                    "id": "H1-S1",
+                    "hammer_parent": "Task 1",
+                    "title": "实现核心逻辑",
+                    "expected_files": ["service.go"],
+                    "acceptance": ["核心路径通过"],
+                }
+            ]
+        }
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            with self.assertRaisesRegex(
+                self.state.CoshHammerError, "任务说明|实施步骤|修改符号"
+            ):
+                self.state.activate_coding(
+                    self.project, "coding-work", "Task 1", incomplete
+                )
+
+    def test_live_status_projects_detailed_task_progress_and_next_action(self) -> None:
+        self.initialize_coding_work()
+        detailed = self.coding_task_spec()
+        for task in detailed["tasks"]:
+            task.update(
+                {
+                    "description": f"完成 {task['title']} 的最小改动",
+                    "symbols": ["OrderService.Check"],
+                    "steps": ["读取现状", "实现改动", "记录验证证据"],
+                    "dependencies": [],
+                }
+            )
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", detailed
+            )
+            status = self.state.build_status(self.project, "coding-work")
+
+        self.assertEqual(status["coding"]["progress"]["total"], 2)
+        self.assertEqual(status["coding"]["progress"]["completed"], 0)
+        self.assertEqual(status["coding"]["next_action"], "await_task_authorization")
+        self.assertEqual(status["coding"]["current_task"]["symbols"], ["OrderService.Check"])
+
+    def test_single_mode_requires_authorization_and_stops_at_each_subtask(self) -> None:
+        coding = self.initialize_coding_work()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+            with self.assertRaisesRegex(self.state.CoshHammerError, "授权"):
+                self.state.begin_subtask(self.project, "coding-work", "H1-S1")
+            self.state.apply_control(
+                self.project,
+                "coding-work",
+                {"action": "authorize-task", "task": "H1-S1"},
+            )
+            self.state.begin_subtask(self.project, "coding-work", "H1-S1")
+            result = self.state.complete_subtask(
+                self.project,
+                "coding-work",
+                "H1-S1",
+                status="passed",
+                evidence={"summary": "核心逻辑完成"},
+            )
+
+        self.assertEqual(result["current_task"], "H1-S2")
+        control = json.loads((coding / "control.json").read_text(encoding="utf-8"))
+        self.assertNotIn("authorized_task", control)
+
+    def test_single_mode_cannot_authorize_a_future_subtask(self) -> None:
+        self.initialize_coding_work()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+            with self.assertRaisesRegex(self.state.CoshHammerError, "当前"):
+                self.state.apply_control(
+                    self.project,
+                    "coding-work",
+                    {"action": "authorize-task", "task": "H1-S2"},
+                )
+
+    def test_subtask_cannot_start_before_dependencies_pass(self) -> None:
+        coding = self.initialize_coding_work()
+        spec = self.coding_task_spec()
+        spec["tasks"] = [spec["tasks"][1], spec["tasks"][0]]
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", spec
+            )
+            self.state.apply_control(
+                self.project, "coding-work", {"action": "set-mode", "mode": "continuous"}
+            )
+            with self.assertRaisesRegex(self.state.CoshHammerError, "依赖"):
+                self.state.begin_subtask(self.project, "coding-work", "H1-S2")
+
+        state = json.loads((coding / "tasks.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["current_task"], "H1-S2")
+
+    def test_task_authorization_requires_active_cosh_ownership(self) -> None:
+        coding = self.initialize_coding_work()
+        (coding / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "status": "running",
+                    "current_task": "H1-S1",
+                    "tasks": [
+                        {
+                            "id": "H1-S1",
+                            "hammer_parent": "Task 1",
+                            "status": "pending",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            with self.assertRaisesRegex(self.state.CoshHammerError, "所有权"):
+                self.state.apply_control(
+                    self.project,
+                    "coding-work",
+                    {"action": "authorize-task", "task": "H1-S1"},
+                )
+
+    def test_continuous_mode_advances_without_per_task_authorization(self) -> None:
+        self.initialize_coding_work()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+            self.state.apply_control(
+                self.project,
+                "coding-work",
+                {"action": "set-mode", "mode": "continuous"},
+            )
+            self.state.begin_subtask(self.project, "coding-work", "H1-S1")
+            first = self.state.complete_subtask(
+                self.project,
+                "coding-work",
+                "H1-S1",
+                status="passed",
+                evidence={"summary": "核心逻辑完成"},
+            )
+            second = self.state.begin_subtask(
+                self.project, "coding-work", "H1-S2"
+            )
+
+        self.assertEqual(first["current_task"], "H1-S2")
+        self.assertEqual(second["task"]["status"], "running")
+
+    def test_blocked_subtask_does_not_advance_to_next_task(self) -> None:
+        self.initialize_coding_work()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+            self.state.apply_control(
+                self.project, "coding-work", {"action": "set-mode", "mode": "continuous"}
+            )
+            self.state.begin_subtask(self.project, "coding-work", "H1-S1")
+            result = self.state.complete_subtask(
+                self.project,
+                "coding-work",
+                "H1-S1",
+                status="blocked",
+                evidence={"reason": "依赖缺失"},
+            )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["current_task"], "H1-S1")
+
+    def test_complete_coding_returns_done_only_after_all_cosh_subtasks_pass(self) -> None:
+        coding = self.initialize_coding_work()
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run(["git", "-C", str(self.project), "config", "user.name", "Cosh Test"], check=True)
+        subprocess.run(["git", "-C", str(self.project), "config", "user.email", "cosh@example.com"], check=True)
+        (self.project / "service.go").write_text("package service\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.project), "add", "service.go"], check=True)
+        subprocess.run(["git", "-C", str(self.project), "commit", "-qm", "coding result"], check=True)
+        commit_sha = subprocess.run(
+            ["git", "-C", str(self.project), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+            self.state.apply_control(
+                self.project, "coding-work", {"action": "set-mode", "mode": "continuous"}
+            )
+            with self.assertRaisesRegex(self.state.CoshHammerError, "全部通过"):
+                self.state.complete_coding(
+                    self.project, "coding-work", "Task 1", commit_sha=commit_sha
+                )
+            for task_id in ("H1-S1", "H1-S2"):
+                self.state.begin_subtask(self.project, "coding-work", task_id)
+                self.state.complete_subtask(
+                    self.project,
+                    "coding-work",
+                    task_id,
+                    status="passed",
+                    evidence={"summary": f"{task_id} 完成"},
+                )
+            result = self.state.complete_coding(
+                self.project, "coding-work", "Task 1", commit_sha=commit_sha
+            )
+
+        self.assertEqual(result["status"], "DONE")
+        self.assertEqual(result["next_action"], "hammer_continue_after_coding")
+        ownership = json.loads((coding / "ownership.json").read_text(encoding="utf-8"))
+        self.assertEqual(ownership["status"], "returned_to_hammer")
+
     def test_attach_existing_hammer_initializes_only_cosh_and_reports_plan_repair(self) -> None:
         self.assertTrue(
             hasattr(self.state, "attach_existing_hammer"), "缺少迟到接入恢复命令"
@@ -491,6 +816,79 @@ class CoshHammerStateTest(unittest.TestCase):
             ]
         )
         self.assertEqual(attached.command, "attach-existing-hammer")
+        activated = parser.parse_args(
+            [
+                "activate-coding",
+                *common,
+                "--task",
+                "Task 1",
+                "--tasks-file",
+                str(self.project / "tasks.json"),
+            ]
+        )
+        self.assertEqual(activated.command, "activate-coding")
+        self.assertEqual(
+            parser.parse_args(
+                ["begin-subtask", *common, "--task-id", "H1-S1"]
+            ).command,
+            "begin-subtask",
+        )
+        self.assertEqual(
+            parser.parse_args(
+                [
+                    "complete-subtask",
+                    *common,
+                    "--task-id",
+                    "H1-S1",
+                    "--status",
+                    "passed",
+                    "--evidence-file",
+                    str(self.project / "evidence.json"),
+                ]
+            ).command,
+            "complete-subtask",
+        )
+        self.assertEqual(
+            parser.parse_args(
+                [
+                    "complete-coding",
+                    *common,
+                    "--task",
+                    "Task 1",
+                    "--commit-sha",
+                    "0" * 40,
+                ]
+            ).command,
+            "complete-coding",
+        )
+
+    def test_dashboard_projects_cosh_ownership_and_only_enables_coding_controls_when_active(self) -> None:
+        self.initialize_coding_work()
+        with mock.patch.object(
+            self.state,
+            "verify_coding",
+            return_value={"status": "passed", "plan_sha256": "plan-sha"},
+        ):
+            self.state.activate_coding(
+                self.project, "coding-work", "Task 1", self.coding_task_spec()
+            )
+        active = self.state.build_status(self.project, "coding-work")
+        self.assertEqual(active["coding"]["ownership"]["status"], "cosh_active")
+        self.assertTrue(active["coding"]["controls_enabled"])
+
+        ownership = (
+            self.project
+            / ".cosh"
+            / "hammer-plugin"
+            / "coding-work"
+            / "coding"
+            / "ownership.json"
+        )
+        value = json.loads(ownership.read_text(encoding="utf-8"))
+        value["status"] = "returned_to_hammer"
+        ownership.write_text(json.dumps(value), encoding="utf-8")
+        returned = self.state.build_status(self.project, "coding-work")
+        self.assertFalse(returned["coding"]["controls_enabled"])
 
     def test_initialize_launch_requires_hammer_and_writes_only_plugin_state(self) -> None:
         before = self.hammer_snapshot()
@@ -517,6 +915,8 @@ class CoshHammerStateTest(unittest.TestCase):
         )
         self.assertIn("verify-handoff", launch["hammer_prompt"])
         self.assertIn("verify-coding", launch["hammer_prompt"])
+        self.assertIn("暂停 Hammer 的原生编码执行", launch["hammer_prompt"])
+        self.assertIn("hammer_continue_after_coding", launch["hammer_prompt"])
         state_root = self.project / ".cosh" / "hammer-plugin" / "order-risk"
         self.assertTrue((state_root / "launch" / "request.md").is_file())
         self.assertTrue((state_root / "launch" / "launch.json").is_file())
@@ -1242,6 +1642,11 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertNotIn("localStorage", js)
         self.assertIn("set-mode", js)
         self.assertIn("authorize-task", js)
+        self.assertIn("data.coding?.controls_enabled", js)
+        self.assertIn("Hammer 已暂停编码，Cosh 正在执行细分任务", js)
+        for detail in ("修改文件", "关键符号", "实施步骤", "验收条件", "任务进度"):
+            self.assertIn(detail, js)
+        self.assertIn('data.coding?.next_action', js)
         self.assertIn("textContent", js)
         self.assertNotIn("innerHTML", js)
 

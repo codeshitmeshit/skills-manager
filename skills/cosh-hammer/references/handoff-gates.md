@@ -43,6 +43,8 @@ python3 <skill-root>/scripts/cosh_hammer_state.py verify-coding \
 
 除交接门全部条件外，还必须确认 Execute session 的 `current_task_ref`、coding stage 和 `next_action: run-step-4` 与请求任务一致。成功证据写入 `gates/coding-dispatch.json`。失败时不得开始 CodeGraph 或编码，也不得静默退化为 Hammer 原生 worker。
 
+校验通过后 Hammer 暂停当前 coding task 的原生 worker。Cosh 生成四类定位/计划产物与细分任务后运行 `activate-coding`；取得 `cosh_active` 所有权前仍不得修改业务代码。全部细分任务通过后运行 `complete-coding`，Hammer 只能在消费 `DONE + hammer_continue_after_coding` handoff 后继续。
+
 ## 迟到接入
 
 Hammer 已完成 Design/Plan、但 `.cosh/hammer-plugin/<work-id>` 尚未初始化时运行：

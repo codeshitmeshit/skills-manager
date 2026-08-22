@@ -19,7 +19,7 @@
 
 三路评审页必须识别 `.hammer/design/reviews/<round>/` 下的 `general.md`、`security.md` 与 `stability.md`，按最新轮次优先展示每路 `status`、`review_pass`、`review_mode`、`blocking_issue_count`、`max_severity`、`unresolved_finding_ids` 和原文入口。该 round 目录中的设计快照与 `routing.json` 也归为评审产物，不得误放在设计页。兼容旧版 `.hammer/design/{review,security-review,stability-review}.md`。
 
-编码推进设置不是全局时间线控件：只在“编码”页且已经生成细分任务时展示。逐一任务模式仅在当前 pending 任务尚未授权时显示授权按钮；连续模式不显示授权按钮。其他 Hammer 阶段页面只读，不得出现插件推进控制。
+编码推进设置不是全局时间线控件：只在“编码”页、已经生成细分任务且 `ownership.status=cosh_active` 时可操作，并明确展示“Hammer 已暂停编码，Cosh 正在执行细分任务”。页面必须实时展示任务总数、已完成数、进度条、下一动作，以及每项任务的说明、修改文件、关键符号、实施步骤、依赖、验收条件、状态和完成证据；当前任务需突出标识。逐一任务模式仅在当前 pending 任务尚未授权时显示授权按钮，且不能提前授权未来任务；连续模式不显示授权按钮，并由编码 worker 按持久化 `next_action` 连续消费当前父任务内的下一项。`returned_to_hammer` 后所有推进控件禁用并提示等待 Hammer 进入下一阶段。其他 Hammer 阶段页面只读，不得出现插件推进控制。
 
 入口目录默认保持为活动目录，不因发现其他 Git worktree 而自行迁移。只有 Hammer 在当前 `.hammer/design/session.md` 写入合法的 `workspace.worktree decision=migrated_away path=...` 事件后，服务才校验目标属于当前仓库的已注册 Git worktree，并沿迁移链读取目标 `.hammer/`；无事件时始终继续监听原目录，非法或循环迁移时 fail closed。插件状态和控制仍留在入口目录的 `.cosh/hammer-plugin/<work-id>/`。
 

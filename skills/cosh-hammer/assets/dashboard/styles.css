@@ -48,13 +48,32 @@ dd { overflow-wrap: anywhere; margin: 6px 0 0; font-size: 18px; font-weight: 750
 .artifact-size { margin-left: auto; color: var(--muted); white-space: nowrap; }
 .empty-state { margin-top: 24px; padding: 48px 24px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
 .coding-settings { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #0a1524; }
+.coding-ownership { display: grid; gap: 7px; margin-top: 24px; padding: 18px 20px; border: 1px solid var(--line); border-left: 4px solid #7891b7; border-radius: 14px; background: #0a1524; }
+.coding-ownership.cosh_active { border-left-color: var(--green); background: rgba(102, 224, 185, .06); }
+.coding-ownership.returned_to_hammer { border-left-color: var(--blue); }
+.coding-progress { display: grid; grid-template-columns: minmax(220px, .45fr) 1fr; gap: 24px; align-items: center; margin-top: 14px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: #0a1524; }
+.coding-progress strong, .coding-progress span { display: block; }
+.task-progress-track { height: 12px; overflow: hidden; border-radius: 999px; background: #1a2a42; }
+.task-progress-value { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .25s ease; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .controls button { border-color: var(--line); background: #12233c; }
 .controls button.authorize { color: #07101d; border-color: var(--green); background: var(--green); }
 .controls button:disabled { opacity: .4; cursor: not-allowed; }
-.task { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #0a1524; }
-.task h3, .task .eyebrow { margin-bottom: 0; }
+.task { display: grid; gap: 18px; padding: 20px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 14px; background: #0a1524; }
+.task.current { border-color: var(--amber); background: #121e31; box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 25%, transparent); }
+.task.running { border-left-color: var(--amber); }
+.task.passed { border-left-color: var(--green); }
+.task.blocked { border-left-color: var(--red); }
+.task-heading { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+.task h3, .task .eyebrow { margin-bottom: 4px; }
+.task-description { margin: 8px 0 0; color: #c4d1e4; }
 .task-status { color: var(--muted); }
+.task-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.task-detail, .task-evidence { min-width: 0; padding: 14px; border: 1px solid #203550; border-radius: 11px; background: #07101d; }
+.task-detail h4, .task-evidence h4 { margin: 0 0 8px; color: var(--blue); font-size: 13px; }
+.task-detail ul { margin: 0; padding-left: 20px; color: #c5d2e5; }
+.task-detail li + li { margin-top: 5px; }
+.task-evidence p { margin: 4px 0; color: var(--green); overflow-wrap: anywhere; }
 .section-heading { margin: 32px 0 0; }
 .review-round { margin-top: 26px; }
 .review-round-heading, .review-card-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
@@ -120,4 +139,4 @@ dd { overflow-wrap: anywhere; margin: 6px 0 0; font-size: 18px; font-weight: 750
 .json-value.boolean { color: #c2a6ff; }
 .json-value.null { color: #ff8990; font-style: italic; }
 @media (max-width: 900px) { .review-grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { main { width: min(100% - 24px, 1320px); padding-top: 28px; } .hero, .view-header, .coding-settings, .viewer-title { align-items: stretch; flex-direction: column; } .progress-badge { min-width: 0; } .facts { grid-template-columns: 1fr; } .viewport, .artifact-content { padding: 18px; } .artifact-size { display: none; } .viewer-actions { justify-content: start; } }
+@media (max-width: 760px) { main { width: min(100% - 24px, 1320px); padding-top: 28px; } .hero, .view-header, .coding-settings, .viewer-title { align-items: stretch; flex-direction: column; } .progress-badge { min-width: 0; } .facts, .coding-progress, .task-details { grid-template-columns: 1fr; } .viewport, .artifact-content { padding: 18px; } .artifact-size { display: none; } .viewer-actions { justify-content: start; } }

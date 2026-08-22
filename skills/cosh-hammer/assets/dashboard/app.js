@@ -322,6 +322,33 @@ function renderCoding(data) {
   fragment.append(viewHeader("编码执行", "Hammer 父任务下的 Cosh 细分任务、范围与推进控制。"));
   const tasks = data.coding?.tasks || [];
   if (tasks.length) {
+    const ownership = data.coding?.ownership || {};
+    const ownershipCopy = ownership.status === "cosh_active"
+      ? "Hammer 已暂停编码，Cosh 正在执行细分任务"
+      : ownership.status === "returned_to_hammer"
+        ? "Cosh 编码已完成，等待 Hammer 进入下一阶段"
+        : "编码所有权尚未确认";
+    const ownershipBanner = element("section", `coding-ownership ${ownership.status || "pending"}`);
+    ownershipBanner.append(
+      element("p", "eyebrow", ownership.status === "cosh_active" ? "COSH 编码接管中" : "编码交接"),
+      element("strong", "", ownershipCopy),
+      element("span", "muted", ownership.hammer_task || data.hammer.current_task || ""),
+    );
+    fragment.append(ownershipBanner);
+    const progress = data.coding?.progress || {};
+    const progressPanel = element("section", "coding-progress");
+    const progressCopy = element("div");
+    progressCopy.append(
+      element("p", "eyebrow", "任务进度"),
+      element("strong", "", `${progress.completed || 0} / ${progress.total || tasks.length}`),
+      element("span", "muted", `下一动作：${data.coding?.next_action || "等待状态"}`),
+    );
+    const progressTrack = element("div", "task-progress-track");
+    const progressValue = element("span", "task-progress-value");
+    progressValue.style.width = `${Math.max(0, Math.min(100, progress.percent || 0))}%`;
+    progressTrack.append(progressValue);
+    progressPanel.append(progressCopy, progressTrack);
+    fragment.append(progressPanel);
     const settings = element("section", "coding-settings");
     const settingCopy = element("div");
     settingCopy.append(element("p", "eyebrow", "推进方式"), element("strong", "", data.control?.mode === "continuous" ? "连续推进" : "逐一任务校验"));
@@ -329,7 +356,7 @@ function renderCoding(data) {
     [["single", "逐一任务校验"], ["continuous", "连续推进"]].forEach(([mode, label]) => {
       const button = element("button", data.control?.mode === mode ? "active" : "", label);
       button.type = "button";
-      button.disabled = !data.controls_enabled;
+      button.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
       button.addEventListener("click", () => postControl({ action: "set-mode", mode }).catch(error => alert(error.message)));
       actions.append(button);
     });
@@ -338,7 +365,7 @@ function renderCoding(data) {
     if (needsAuthorization) {
       const authorize = element("button", "authorize", `授权 ${current.id}`);
       authorize.type = "button";
-      authorize.disabled = !data.controls_enabled;
+      authorize.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
       authorize.addEventListener("click", () => postControl({ action: "authorize-task", task: current.id }).catch(error => alert(error.message)));
       actions.append(authorize);
     }
@@ -346,10 +373,41 @@ function renderCoding(data) {
     fragment.append(settings);
     const taskList = element("div", "task-list");
     tasks.forEach(task => {
-      const card = element("article", `task ${task.status || "pending"}`);
+      const currentClass = data.coding?.current_task?.id === task.id ? " current" : "";
+      const card = element("article", `task ${task.status || "pending"}${currentClass}`);
+      const heading = element("div", "task-heading");
       const copy = element("div");
-      copy.append(element("p", "eyebrow", task.hammer_parent || "HAMMER TASK"), element("h3", "", task.title || task.id));
-      card.append(copy, element("strong", "task-status", task.status || "pending"));
+      copy.append(
+        element("p", "eyebrow", `${task.id} · ${task.hammer_parent || "HAMMER TASK"}`),
+        element("h3", "", task.title || task.id),
+        element("p", "task-description", task.description || "未记录任务说明"),
+      );
+      heading.append(copy, element("strong", "task-status", task.status || "pending"));
+      card.append(heading);
+      const details = element("div", "task-details");
+      [
+        ["修改文件", task.expected_files],
+        ["关键符号", task.symbols],
+        ["实施步骤", task.steps],
+        ["验收条件", task.acceptance],
+        ["依赖任务", task.dependencies?.length ? task.dependencies : ["无"]],
+      ].forEach(([label, values]) => {
+        const section = element("section", "task-detail");
+        section.append(element("h4", "", label));
+        const list = element("ul");
+        (values || ["未记录"]).forEach(value => list.append(element("li", "", value)));
+        section.append(list);
+        details.append(section);
+      });
+      card.append(details);
+      if (task.evidence) {
+        const evidence = element("section", "task-evidence");
+        evidence.append(element("h4", "", "完成证据"));
+        Object.entries(task.evidence).forEach(([key, value]) => {
+          evidence.append(element("p", "", `${key}：${typeof value === "string" ? value : JSON.stringify(value)}`));
+        });
+        card.append(evidence);
+      }
       taskList.append(card);
     });
     fragment.append(taskList);
