@@ -320,22 +320,22 @@ function renderReview(data) {
 
 function renderCoding(data) {
   const fragment = document.createDocumentFragment();
-  fragment.append(viewHeader("编码执行", "Hammer 父任务下的 Cosh 细分任务、范围与推进控制。"));
+  fragment.append(viewHeader("编码执行", "独立展示覆盖全部 Hammer coding task 的 Cosh 全局任务树。"));
   const tasks = data.coding?.tasks || [];
   if (tasks.length) {
     const ownership = data.coding?.ownership || {};
-    const ownershipCopy = data.coding?.compatibility === "legacy_task_schema" && !ownership.status
+    const ownershipCopy = data.coding?.compatibility === "legacy_single_parent_readonly"
       ? "检测到旧版编码快照，仅兼容展示，不开放推进控制"
       : ownership.status === "cosh_active"
-      ? "Hammer 已暂停编码，Cosh 正在执行细分任务"
+      ? "Hammer 已暂停编码，Cosh 正在执行全局细分任务"
       : ownership.status === "returned_to_hammer"
-        ? "Cosh 编码已完成，等待 Hammer 进入下一阶段"
+        ? "编码完成，等待交还 Hammer"
         : "编码所有权尚未确认";
     const ownershipBanner = element("section", `coding-ownership ${ownership.status || "pending"}`);
     ownershipBanner.append(
       element("p", "eyebrow", ownership.status === "cosh_active" ? "COSH 编码接管中" : "编码交接"),
       element("strong", "", ownershipCopy),
-      element("span", "muted", ownership.hammer_task || data.hammer.current_task || ""),
+      element("span", "muted", ownership.hammer_entry_task || data.hammer.current_task || ""),
     );
     fragment.append(ownershipBanner);
     const progress = data.coding?.progress || {};
@@ -372,20 +372,6 @@ function renderCoding(data) {
       authorize.addEventListener("click", () => postControl({ action: "authorize-task", task: current.id }).catch(error => alert(error.message)));
       actions.append(authorize);
     }
-    const nextHammerTask = data.coding?.next_hammer_task;
-    const needsHammerTaskAuthorization = data.control?.mode !== "continuous"
-      && data.coding?.next_action === "await_hammer_task_authorization"
-      && nextHammerTask;
-    if (needsHammerTaskAuthorization) {
-      const authorizeParent = element("button", "authorize", `授权进入 ${nextHammerTask}`);
-      authorizeParent.type = "button";
-      authorizeParent.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
-      authorizeParent.addEventListener("click", () => postControl({
-        action: "authorize-hammer-task",
-        task: nextHammerTask,
-      }).catch(error => alert(error.message)));
-      actions.append(authorizeParent);
-    }
     settings.append(settingCopy, actions);
     fragment.append(settings);
     const selectedTask = tasks.find(task => task.id === selectedCodingTaskId)
@@ -395,21 +381,33 @@ function renderCoding(data) {
     const workspace = element("section", "coding-workspace");
     const taskList = element("nav", "coding-task-rail");
     taskList.setAttribute("aria-label", "编码任务列表");
-    tasks.forEach(task => {
-      const currentClass = data.coding?.current_task?.id === task.id ? " current" : "";
-      const selectedClass = selectedCodingTaskId === task.id ? " selected" : "";
-      const item = element("button", `coding-task-item ${task.status || "pending"}${currentClass}${selectedClass}`);
-      item.type = "button";
-      item.append(
-        element("span", "task-index", task.id || "TASK"),
-        element("strong", "", task.title || task.id),
-        element("span", "task-status", task.status || "pending"),
+    (data.coding?.parents || []).forEach(parent => {
+      const group = element("section", "coding-parent-group");
+      const parentHeading = element("div", "coding-parent-heading");
+      parentHeading.append(
+        element("strong", "", parent.id),
+        element("span", "muted", `${parent.completed} / ${parent.total}`),
       );
-      item.addEventListener("click", () => {
-        selectedCodingTaskId = task.id;
-        renderView(data);
+      group.append(parentHeading);
+      parent.tasks.forEach(taskId => {
+        const task = tasks.find(item => item.id === taskId);
+        if (!task) return;
+        const currentClass = data.coding?.current_task?.id === task.id ? " current" : "";
+        const selectedClass = selectedCodingTaskId === task.id ? " selected" : "";
+        const item = element("button", `coding-task-item ${task.status || "pending"}${currentClass}${selectedClass}`);
+        item.type = "button";
+        item.append(
+          element("span", "task-index", task.id || "TASK"),
+          element("strong", "", task.title || task.id),
+          element("span", "task-status", task.status || "pending"),
+        );
+        item.addEventListener("click", () => {
+          selectedCodingTaskId = task.id;
+          renderView(data);
+        });
+        group.append(item);
       });
-      taskList.append(item);
+      taskList.append(group);
     });
     const detail = element("article", `coding-task-detail ${selectedTask?.status || "pending"}`);
     if (selectedTask) {
@@ -445,6 +443,15 @@ function renderCoding(data) {
           evidence.append(element("p", "", `${key}：${typeof value === "string" ? value : JSON.stringify(value)}`));
         });
         detail.append(evidence);
+      }
+      if (selectedTask.checkpoint?.commit_sha) {
+        const checkpoint = element("section", "task-evidence");
+        checkpoint.append(
+          element("h4", "", "任务提交"),
+          element("p", "", `Commit：${selectedTask.checkpoint?.commit_sha}`),
+          element("p", "", `Snapshot：${selectedTask.checkpoint?.snapshot_sha || "—"}`),
+        );
+        detail.append(checkpoint);
       }
     }
     workspace.append(taskList, detail);

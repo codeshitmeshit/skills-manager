@@ -1658,6 +1658,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     current_coding_task: dict[str, Any] | None = None
     coding_state: dict[str, Any] = {}
     legacy_task_schema = False
+    hammer_task_order: list[str] = []
     if tasks_path.is_file():
         coding_state = _read_json(tasks_path)
         raw_tasks = coding_state.get("tasks", [])
@@ -1665,7 +1666,28 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             raise CoshHammerError("coding/tasks.json 的 tasks 必须是对象数组")
         projected_tasks = [_project_coding_task(item) for item in raw_tasks]
         coding_tasks = [item for item, _legacy in projected_tasks]
-        legacy_task_schema = any(legacy for _item, legacy in projected_tasks)
+        legacy_task_schema = coding_state.get("schema_version") != 2 or any(
+            legacy for _item, legacy in projected_tasks
+        )
+        raw_parent_order = coding_state.get("hammer_task_order")
+        if not legacy_task_schema:
+            if not isinstance(raw_parent_order, list) or not all(
+                isinstance(item, str) and item.strip() for item in raw_parent_order
+            ):
+                raise CoshHammerError("schema v2 coding/tasks.json 缺少 Hammer 父任务顺序")
+            hammer_task_order = [item.strip() for item in raw_parent_order]
+        else:
+            for task in coding_tasks:
+                parent = task.get("hammer_parent")
+                if isinstance(parent, str) and parent not in hammer_task_order:
+                    hammer_task_order.append(parent)
+        for task in coding_tasks:
+            task_id = task.get("id")
+            if not isinstance(task_id, str):
+                continue
+            checkpoint_path = root / "coding" / "checkpoints" / f"{task_id}.json"
+            if checkpoint_path.is_file():
+                task["checkpoint"] = _read_json(checkpoint_path)
         current_id = coding_state.get("current_task")
         current_coding_task = next(
             (item for item in coding_tasks if item.get("id") == current_id), None
@@ -1686,7 +1708,27 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         1 for item in coding_tasks if str(item.get("status")) == "blocked"
     )
     mode = control.get("mode", "single")
-    if coding_tasks and not isinstance(ownership, dict):
+    parents = [
+        {
+            "id": parent,
+            "tasks": [
+                task["id"]
+                for task in coding_tasks
+                if task.get("hammer_parent") == parent
+            ],
+            "completed": sum(
+                1
+                for task in coding_tasks
+                if task.get("hammer_parent") == parent
+                and task.get("status") == "passed"
+            ),
+            "total": sum(
+                1 for task in coding_tasks if task.get("hammer_parent") == parent
+            ),
+        }
+        for parent in hammer_task_order
+    ]
+    if coding_tasks and legacy_task_schema:
         coding_next_action = "legacy_snapshot_readonly"
     elif isinstance(ownership, dict) and ownership.get("status") == "returned_to_hammer":
         coding_next_action = "hammer_continue_after_coding_stage"
@@ -1724,10 +1766,13 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         "coding": {
             "current_task": current_coding_task,
             "tasks": coding_tasks,
+            "parents": parents,
             "ownership": ownership,
             "status": coding_state.get("status", "pending"),
             "next_action": coding_next_action,
-            "compatibility": "legacy_task_schema" if legacy_task_schema else None,
+            "compatibility": (
+                "legacy_single_parent_readonly" if legacy_task_schema else None
+            ),
             "progress": {
                 "completed": completed_tasks,
                 "blocked": blocked_tasks,
@@ -1739,6 +1784,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             "controls_enabled": bool(
                 isinstance(ownership, dict)
                 and ownership.get("status") == "cosh_active"
+                and not legacy_task_schema
             ),
         },
         "review_results": _review_results(active_project),

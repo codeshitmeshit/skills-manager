@@ -866,6 +866,64 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(status["coding"]["next_action"], "await_task_authorization")
         self.assertEqual(status["coding"]["current_task"]["symbols"], ["OrderService.Check"])
 
+    def test_dashboard_projects_global_coding_tree_by_hammer_parent(self) -> None:
+        coding = self.initialize_coding_work("global-dashboard")
+        spec = self.global_coding_task_spec()
+        for index, task in enumerate(spec["tasks"]):
+            task["status"] = "passed" if index < 2 else "pending"
+        (coding / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "status": "running",
+                    "hammer_task_order": ["Task 1", "Task 2", "Task 3"],
+                    "current_task": "task2-query",
+                    "tasks": spec["tasks"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (coding / "ownership.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "status": "cosh_active",
+                    "scope": "full_coding_stage",
+                    "hammer_entry_task": "Task 1",
+                    "hammer_task_order": ["Task 1", "Task 2", "Task 3"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        checkpoints = coding / "checkpoints"
+        checkpoints.mkdir()
+        for index, task_id in enumerate(("task1-fg", "task1-tcc"), start=1):
+            (checkpoints / f"{task_id}.json").write_text(
+                json.dumps(
+                    {
+                        "task": task_id,
+                        "status": "passed",
+                        "commit_sha": str(index) * 40,
+                        "staged_files": [f"{task_id}.go"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        status = self.state.build_status(self.project, "global-dashboard")
+
+        self.assertEqual(
+            [parent["id"] for parent in status["coding"]["parents"]],
+            ["Task 1", "Task 2", "Task 3"],
+        )
+        self.assertEqual(status["coding"]["parents"][0]["completed"], 2)
+        self.assertEqual(status["coding"]["progress"]["total"], 4)
+        self.assertEqual(status["coding"]["current_task"]["id"], "task2-query")
+        self.assertEqual(
+            status["coding"]["tasks"][0]["checkpoint"]["commit_sha"], "1" * 40
+        )
+        self.assertNotIn("next_hammer_task", status["coding"])
+
     def test_live_status_normalizes_legacy_completed_task_as_read_only_passed(self) -> None:
         coding = self.initialize_coding_work()
         (coding / "tasks.json").write_text(
@@ -894,7 +952,10 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(status["coding"]["tasks"][0]["status"], "passed")
         self.assertEqual(status["coding"]["tasks"][0]["source_status"], "completed")
         self.assertEqual(status["coding"]["next_action"], "legacy_snapshot_readonly")
-        self.assertEqual(status["coding"]["compatibility"], "legacy_task_schema")
+        self.assertEqual(
+            status["coding"]["compatibility"],
+            "legacy_single_parent_readonly",
+        )
         self.assertFalse(status["coding"]["controls_enabled"])
 
     def test_single_mode_requires_authorization_and_stops_at_each_subtask(self) -> None:
@@ -2085,9 +2146,11 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertNotIn("localStorage", js)
         self.assertIn("set-mode", js)
         self.assertIn("authorize-task", js)
-        self.assertIn("authorize-hammer-task", js)
+        self.assertNotIn("authorize-hammer-task", js)
+        self.assertIn("coding-parent-group", js)
+        self.assertIn("checkpoint?.commit_sha", js)
         self.assertIn("data.coding?.controls_enabled", js)
-        self.assertIn("Hammer 已暂停编码，Cosh 正在执行细分任务", js)
+        self.assertIn("Hammer 已暂停编码，Cosh 正在执行全局细分任务", js)
         for detail in ("修改文件", "关键符号", "实施步骤", "验收条件", "任务进度"):
             self.assertIn(detail, js)
         for layout in ("coding-workspace", "coding-task-rail", "coding-task-detail"):
