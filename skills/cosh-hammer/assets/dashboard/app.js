@@ -9,6 +9,7 @@ let currentData = null;
 let artifactRaw = "";
 let artifactPresentation = null;
 let artifactMode = "rendered";
+let selectedCodingTaskId = null;
 
 function api(path, extra = {}) {
   const url = new URL(path, window.location.origin);
@@ -323,7 +324,9 @@ function renderCoding(data) {
   const tasks = data.coding?.tasks || [];
   if (tasks.length) {
     const ownership = data.coding?.ownership || {};
-    const ownershipCopy = ownership.status === "cosh_active"
+    const ownershipCopy = data.coding?.compatibility === "legacy_task_schema" && !ownership.status
+      ? "检测到旧版编码快照，仅兼容展示，不开放推进控制"
+      : ownership.status === "cosh_active"
       ? "Hammer 已暂停编码，Cosh 正在执行细分任务"
       : ownership.status === "returned_to_hammer"
         ? "Cosh 编码已完成，等待 Hammer 进入下一阶段"
@@ -371,46 +374,67 @@ function renderCoding(data) {
     }
     settings.append(settingCopy, actions);
     fragment.append(settings);
-    const taskList = element("div", "task-list");
+    const selectedTask = tasks.find(task => task.id === selectedCodingTaskId)
+      || data.coding?.current_task
+      || tasks[0];
+    selectedCodingTaskId = selectedTask?.id || null;
+    const workspace = element("section", "coding-workspace");
+    const taskList = element("nav", "coding-task-rail");
+    taskList.setAttribute("aria-label", "编码任务列表");
     tasks.forEach(task => {
       const currentClass = data.coding?.current_task?.id === task.id ? " current" : "";
-      const card = element("article", `task ${task.status || "pending"}${currentClass}`);
+      const selectedClass = selectedCodingTaskId === task.id ? " selected" : "";
+      const item = element("button", `coding-task-item ${task.status || "pending"}${currentClass}${selectedClass}`);
+      item.type = "button";
+      item.append(
+        element("span", "task-index", task.id || "TASK"),
+        element("strong", "", task.title || task.id),
+        element("span", "task-status", task.status || "pending"),
+      );
+      item.addEventListener("click", () => {
+        selectedCodingTaskId = task.id;
+        renderView(data);
+      });
+      taskList.append(item);
+    });
+    const detail = element("article", `coding-task-detail ${selectedTask?.status || "pending"}`);
+    if (selectedTask) {
       const heading = element("div", "task-heading");
       const copy = element("div");
       copy.append(
-        element("p", "eyebrow", `${task.id} · ${task.hammer_parent || "HAMMER TASK"}`),
-        element("h3", "", task.title || task.id),
-        element("p", "task-description", task.description || "未记录任务说明"),
+        element("p", "eyebrow", `${selectedTask.id} · ${selectedTask.hammer_parent || "HAMMER TASK"}`),
+        element("h3", "", selectedTask.title || selectedTask.id),
+        element("p", "task-description", selectedTask.description || (selectedTask.legacy ? "旧版任务未记录详细说明" : "未记录任务说明")),
       );
-      heading.append(copy, element("strong", "task-status", task.status || "pending"));
-      card.append(heading);
+      heading.append(copy, element("strong", "task-status", selectedTask.status || "pending"));
+      detail.append(heading);
       const details = element("div", "task-details");
       [
-        ["修改文件", task.expected_files],
-        ["关键符号", task.symbols],
-        ["实施步骤", task.steps],
-        ["验收条件", task.acceptance],
-        ["依赖任务", task.dependencies?.length ? task.dependencies : ["无"]],
+        ["修改文件", selectedTask.expected_files],
+        ["关键符号", selectedTask.symbols],
+        ["实施步骤", selectedTask.steps],
+        ["验收条件", selectedTask.acceptance],
+        ["依赖任务", selectedTask.dependencies?.length ? selectedTask.dependencies : ["无"]],
       ].forEach(([label, values]) => {
         const section = element("section", "task-detail");
         section.append(element("h4", "", label));
         const list = element("ul");
-        (values || ["未记录"]).forEach(value => list.append(element("li", "", value)));
+        (values || [selectedTask.legacy ? "旧版快照未记录" : "未记录"]).forEach(value => list.append(element("li", "", value)));
         section.append(list);
         details.append(section);
       });
-      card.append(details);
-      if (task.evidence) {
+      detail.append(details);
+      if (selectedTask.evidence) {
         const evidence = element("section", "task-evidence");
         evidence.append(element("h4", "", "完成证据"));
-        Object.entries(task.evidence).forEach(([key, value]) => {
+        Object.entries(selectedTask.evidence).forEach(([key, value]) => {
           evidence.append(element("p", "", `${key}：${typeof value === "string" ? value : JSON.stringify(value)}`));
         });
-        card.append(evidence);
+        detail.append(evidence);
       }
-      taskList.append(card);
-    });
-    fragment.append(taskList);
+    }
+    workspace.append(taskList, detail);
+    fragment.append(workspace);
   } else {
     fragment.append(emptyState("等待 Hammer Plan 进入编码父任务并生成 Cosh 细分任务。"));
   }

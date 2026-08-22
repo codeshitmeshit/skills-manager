@@ -1355,6 +1355,42 @@ def _stage_progress(stages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _project_coding_task(task: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    projected = dict(task)
+    source_status = str(projected.get("status", "pending")).strip().lower()
+    status_aliases = {
+        "completed": "passed",
+        "complete": "passed",
+        "done": "passed",
+        "success": "passed",
+        "in_progress": "running",
+        "active": "running",
+        "waiting": "pending",
+        "todo": "pending",
+        "failed": "blocked",
+        "error": "blocked",
+    }
+    normalized_status = status_aliases.get(source_status, source_status)
+    if normalized_status not in {"pending", "running", "passed", "blocked"}:
+        normalized_status = "pending"
+    legacy = normalized_status != source_status or any(
+        field not in projected
+        for field in (
+            "description",
+            "expected_files",
+            "symbols",
+            "steps",
+            "dependencies",
+            "acceptance",
+        )
+    )
+    if normalized_status != source_status:
+        projected["source_status"] = source_status
+    projected["status"] = normalized_status
+    projected["legacy"] = legacy
+    return projected, legacy
+
+
 def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     project = project.resolve()
     root, launch, active_project, migration_chain = _launch_context(project, work_id)
@@ -1375,12 +1411,15 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
     coding_tasks: list[dict[str, Any]] = []
     current_coding_task: dict[str, Any] | None = None
     coding_state: dict[str, Any] = {}
+    legacy_task_schema = False
     if tasks_path.is_file():
         coding_state = _read_json(tasks_path)
         raw_tasks = coding_state.get("tasks", [])
         if not isinstance(raw_tasks, list) or not all(isinstance(item, dict) for item in raw_tasks):
             raise CoshHammerError("coding/tasks.json 的 tasks 必须是对象数组")
-        coding_tasks = [dict(item) for item in raw_tasks]
+        projected_tasks = [_project_coding_task(item) for item in raw_tasks]
+        coding_tasks = [item for item, _legacy in projected_tasks]
+        legacy_task_schema = any(legacy for _item, legacy in projected_tasks)
         current_id = coding_state.get("current_task")
         current_coding_task = next(
             (item for item in coding_tasks if item.get("id") == current_id), None
@@ -1401,7 +1440,9 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         1 for item in coding_tasks if str(item.get("status")) == "blocked"
     )
     mode = control.get("mode", "single")
-    if isinstance(ownership, dict) and ownership.get("status") == "returned_to_hammer":
+    if coding_tasks and not isinstance(ownership, dict):
+        coding_next_action = "legacy_snapshot_readonly"
+    elif isinstance(ownership, dict) and ownership.get("status") == "returned_to_hammer":
         coding_next_action = "hammer_continue_after_coding"
     elif blocked_tasks:
         coding_next_action = "resolve_current_blocker"
@@ -1440,6 +1481,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
             "ownership": ownership,
             "status": coding_state.get("status", "pending"),
             "next_action": coding_next_action,
+            "compatibility": "legacy_task_schema" if legacy_task_schema else None,
             "progress": {
                 "completed": completed_tasks,
                 "blocked": blocked_tasks,

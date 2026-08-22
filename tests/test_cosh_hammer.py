@@ -565,6 +565,37 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(status["coding"]["next_action"], "await_task_authorization")
         self.assertEqual(status["coding"]["current_task"]["symbols"], ["OrderService.Check"])
 
+    def test_live_status_normalizes_legacy_completed_task_as_read_only_passed(self) -> None:
+        coding = self.initialize_coding_work()
+        (coding / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "status": "running",
+                    "current_task": "TASK1-CONFIG-CONTROL-PLANE",
+                    "tasks": [
+                        {
+                            "id": "TASK1-CONFIG-CONTROL-PLANE",
+                            "hammer_parent": "Task 1",
+                            "title": "Implement control plane",
+                            "status": "completed",
+                            "acceptance": ["request path never calls TCC Getter"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        status = self.state.build_status(self.project, "coding-work")
+
+        self.assertEqual(status["coding"]["progress"]["completed"], 1)
+        self.assertEqual(status["coding"]["progress"]["total"], 1)
+        self.assertEqual(status["coding"]["tasks"][0]["status"], "passed")
+        self.assertEqual(status["coding"]["tasks"][0]["source_status"], "completed")
+        self.assertEqual(status["coding"]["next_action"], "legacy_snapshot_readonly")
+        self.assertEqual(status["coding"]["compatibility"], "legacy_task_schema")
+        self.assertFalse(status["coding"]["controls_enabled"])
+
     def test_single_mode_requires_authorization_and_stops_at_each_subtask(self) -> None:
         coding = self.initialize_coding_work()
         with mock.patch.object(
@@ -1646,6 +1677,8 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertIn("Hammer 已暂停编码，Cosh 正在执行细分任务", js)
         for detail in ("修改文件", "关键符号", "实施步骤", "验收条件", "任务进度"):
             self.assertIn(detail, js)
+        for layout in ("coding-workspace", "coding-task-rail", "coding-task-detail"):
+            self.assertIn(layout, js)
         self.assertIn('data.coding?.next_action', js)
         self.assertIn("textContent", js)
         self.assertNotIn("innerHTML", js)
