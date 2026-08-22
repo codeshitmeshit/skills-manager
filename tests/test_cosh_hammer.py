@@ -1325,6 +1325,62 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(channels["security"]["unresolved_finding_ids"], "SEC-1")
         self.assertEqual(channels["general"]["artifact_path"], "design/reviews/2/general.md")
 
+    def test_review_round_accepts_hammer_recommendation_and_kind_aliases(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="review-aliases",
+            refined_requirement="兼容 Hammer 三路评审字段。",
+            source={"kind": "text", "value": "兼容 Hammer 三路评审字段"},
+            hammer_root=self.hammer_root,
+        )
+        reviews = self.project / ".hammer" / "design" / "reviews"
+        round_one = reviews / "1"
+        round_two = reviews / "2"
+        round_one.mkdir(parents=True)
+        round_two.mkdir()
+        for channel in ("general", "security", "stability"):
+            status = "blocked" if channel == "stability" else "pass"
+            count = 2 if channel == "stability" else 0
+            severity = "P0" if channel == "stability" else "none"
+            (round_one / f"{channel}.md").write_text(
+                "---\n"
+                f"status_recommendation: {status}\n"
+                f"blocking_issue_count: {count}\n"
+                f"max_severity: {severity}\n"
+                "---\n",
+                encoding="utf-8",
+            )
+            (round_two / f"{channel}.md").write_text(
+                "---\n"
+                "status: blocked\n"
+                "status_recommendation: pass\n"
+                "blocking_issue_count: 0\n"
+                "max_severity: none\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+        status = self.state.build_status(self.project, "review-aliases")
+        rounds = status["review_results"]["rounds"]
+        latest = rounds[0]
+        previous = rounds[1]
+
+        self.assertEqual(status["review_results"]["latest_round"], 2)
+        self.assertEqual(latest["status"], "passed")
+        self.assertTrue(all(report["status"] == "pass" for report in latest["reports"]))
+        self.assertTrue(
+            all(report["review_pass"] == "closure" for report in latest["reports"])
+        )
+        self.assertEqual(previous["status"], "blocked")
+        self.assertTrue(
+            all(report["review_pass"] == "full" for report in previous["reports"])
+        )
+        stability = next(
+            report for report in previous["reports"] if report["channel"] == "stability"
+        )
+        self.assertEqual(stability["blocking_issue_count"], 2)
+        self.assertEqual(stability["max_severity"], "P0")
+
     def test_progress_marks_plan_as_next_after_review_has_passed(self) -> None:
         self.state.initialize_launch(
             self.project,
@@ -1559,7 +1615,11 @@ class CoshHammerStateTest(unittest.TestCase):
             ("security-review.md", "blocked"),
             ("stability-review.md", "skipped_after_limit"),
         ):
-            (design / name).write_text(f"---\nstatus: {status}\n---\n", encoding="utf-8")
+            recommendation = "pass" if status == "blocked" else "blocked"
+            (design / name).write_text(
+                f"---\nstatus: {status}\nstatus_recommendation: {recommendation}\n---\n",
+                encoding="utf-8",
+            )
         blocked = self.state.build_status(self.project, "review-work")
         self.assertEqual(blocked["hammer"]["stage"], "review")
         self.assertEqual(blocked["hammer"]["status"], "blocked")

@@ -17,7 +17,7 @@
 
 总览必须明确标识流程位置：`running`、`blocked` 或 `failed` 的阶段标为“当前”；没有活动阶段时，首个 `pending` 阶段标为“下一步”；全部通过后标为“已完成”。标题区同步展示阶段名称、已完成阶段数和总阶段数，阶段卡片展示同一标识，不得让前一阶段已通过、后一阶段待开始的间隙看起来像仍停留在前一阶段。
 
-三路评审页必须识别 `.hammer/design/reviews/<round>/` 下的 `general.md`、`security.md` 与 `stability.md`，按最新轮次优先展示每路 `status`、`review_pass`、`review_mode`、`blocking_issue_count`、`max_severity`、`unresolved_finding_ids` 和原文入口。该 round 目录中的设计快照与 `routing.json` 也归为评审产物，不得误放在设计页。兼容旧版 `.hammer/design/{review,security-review,stability-review}.md`。
+三路评审页必须区分两类 Hammer 协议：`.hammer/design/reviews/<round>/{general,security,stability}.md` 是原始 Reviewer 报告，结论以 `status_recommendation` 为权威，兼容旧快照时才回退读取 `status`；评审范围不依赖报告回写字段，Round 1 固定投影为 `full`，Round 2–4 固定投影为 `closure`。`.hammer/design/{review,security-review,stability-review}.md` 是顶层终态报告，只以 `status` 为结论，并读取 `review_pass`、`review_mode`、`blocking_issue_count`、`unresolved_finding_ids` 与 `max_severity`。原始报告缺少 recommendation 且也没有兼容 status、终态报告缺少 status 时，均保持 `unknown` 并 fail closed。round 目录中的设计快照与 `routing.json` 也归为评审产物，不得误放在设计页。
 
 编码推进设置不是全局时间线控件：只在“编码”页、已经生成细分任务且 `ownership.status=cosh_active` 时可操作，并明确展示“Hammer 已暂停编码，Cosh 正在执行细分任务”。编码区采用与字节流程一致的主从布局：左侧为紧凑任务轨迹，右侧固定展示选中或当前任务的完整详情。页面必须实时展示任务总数、已完成数、进度条、下一动作，以及每项任务的说明、修改文件、关键符号、实施步骤、依赖、验收条件、状态和完成证据；当前任务需突出标识。逐一任务模式在细分任务边界显示当前任务授权，父任务全部通过后显示“授权进入 Task N”，且后端只能接受紧邻的下一 Hammer 父任务；连续模式不显示这些授权按钮，并由编码 worker按持久化 `next_action` 连续消费两层边界。`returned_to_hammer` 后所有推进控件禁用并提示等待 Hammer 进入下一阶段。其他 Hammer 阶段页面只读，不得出现插件推进控制。
 

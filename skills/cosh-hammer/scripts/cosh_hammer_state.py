@@ -1144,7 +1144,11 @@ def _artifact_category(scope: str, relative: Path) -> str:
 
 
 def _review_report(
-    path: Path, *, channel: str, artifact_path: str
+    path: Path,
+    *,
+    channel: str,
+    artifact_path: str,
+    round_number: int | None = None,
 ) -> dict[str, Any]:
     if not path.is_file():
         return {
@@ -1170,11 +1174,23 @@ def _review_report(
         attempt = int(raw_attempt) if raw_attempt is not None else None
     except ValueError:
         attempt = None
+    if round_number is None:
+        status = _markdown_field(text, "status") or "unknown"
+        review_mode = _markdown_field(text, "review_mode")
+        review_pass = _markdown_field(text, "review_pass")
+    else:
+        status = (
+            _markdown_field(text, "status_recommendation")
+            or _markdown_field(text, "status")
+            or "unknown"
+        )
+        review_mode = None
+        review_pass = "full" if round_number == 1 else "closure"
     return {
         "channel": channel,
-        "status": (_markdown_field(text, "status") or "unknown").lower(),
-        "review_mode": _markdown_field(text, "review_mode"),
-        "review_pass": _markdown_field(text, "review_pass"),
+        "status": status.lower(),
+        "review_mode": review_mode,
+        "review_pass": review_pass,
         "review_attempt": attempt,
         "blocking_issue_count": count,
         "unresolved_finding_ids": _markdown_field(text, "unresolved_finding_ids"),
@@ -1207,17 +1223,19 @@ def _review_results(active_project: Path) -> dict[str, Any]:
             reverse=True,
         )
         for round_dir in round_dirs:
+            round_number = int(round_dir.name)
             reports = [
                 _review_report(
                     round_dir / f"{channel}.md",
                     channel=channel,
                     artifact_path=f"design/reviews/{round_dir.name}/{channel}.md",
+                    round_number=round_number,
                 )
                 for channel in ("general", "security", "stability")
             ]
             rounds.append(
                 {
-                    "round": int(round_dir.name),
+                    "round": round_number,
                     "status": _review_round_status(reports),
                     "reports": reports,
                 }
