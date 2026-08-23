@@ -425,9 +425,10 @@ class CoshHammerStateTest(unittest.TestCase):
         }
         commits = []
         with mock.patch.object(self.state, "verify_handoff", return_value=gate):
-            for task in self.global_coding_task_spec()["tasks"]:
+            for index, task in enumerate(self.global_coding_task_spec()["tasks"]):
                 task_id = task["id"]
-                self.state.begin_subtask(self.project, work_id, task_id)
+                if index == 0:
+                    self.state.begin_subtask(self.project, work_id, task_id)
                 delivery = self.project / task["expected_files"][0]
                 delivery.write_text(
                     f"package delivery\n// {work_id}:{task_id}\n", encoding="utf-8"
@@ -440,7 +441,11 @@ class CoshHammerStateTest(unittest.TestCase):
                     status="passed",
                     evidence={"acceptance": "passed"},
                 )
-                commits.append(result["commit_sha"])
+                self.assertEqual(result["status"], "awaiting_commit")
+                approved = self.state.approve_task_commit(
+                    self.project, work_id, task_id
+                )
+                commits.append(approved["commit_sha"])
         return coding, commits
 
     def test_preflight_fails_closed_when_dashboard_is_unavailable(self) -> None:
@@ -755,7 +760,7 @@ class CoshHammerStateTest(unittest.TestCase):
                     self.project, "coding-work", "Task 1", incomplete
                 )
 
-    def test_passed_subtask_commits_only_its_staged_delivery(self) -> None:
+    def test_passed_subtask_waits_for_explicit_commit_approval(self) -> None:
         self.initialize_git_repository()
         coding = self.activate_global_delivery_work("global-coding")
         gate = {
@@ -766,6 +771,7 @@ class CoshHammerStateTest(unittest.TestCase):
         }
         (self.project / "task1-fg.go").write_text("package task1fg\n", encoding="utf-8")
         self.git("add", "task1-fg.go")
+        before = self.git("rev-parse", "HEAD")
 
         with mock.patch.object(self.state, "verify_handoff", return_value=gate):
             self.state.begin_subtask(self.project, "global-coding", "task1-fg")
@@ -781,12 +787,56 @@ class CoshHammerStateTest(unittest.TestCase):
             (coding / "checkpoints" / "task1-fg.json").read_text(encoding="utf-8")
         )
         tasks = json.loads((coding / "tasks.json").read_text(encoding="utf-8"))
+        self.assertEqual(result["status"], "awaiting_commit")
+        self.assertEqual(result["current_task"], "task1-fg")
+        self.assertEqual(self.git("rev-parse", "HEAD"), before)
+        self.assertEqual(checkpoint["status"], "awaiting_commit")
+        self.assertNotIn("commit_sha", checkpoint)
+        self.assertNotIn("snapshot_sha", checkpoint)
+        self.assertEqual(tasks["tasks"][0]["status"], "awaiting_commit")
+        self.assertEqual(tasks["current_task"], "task1-fg")
+
+    def test_commit_approval_uses_latest_staged_delivery(self) -> None:
+        self.initialize_git_repository()
+        coding = self.activate_global_delivery_work("delayed-commit")
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+        delivery = self.project / "task1-fg.go"
+        delivery.write_text("package task1fg\n", encoding="utf-8")
+        self.git("add", "task1-fg.go")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            self.state.begin_subtask(self.project, "delayed-commit", "task1-fg")
+            self.state.complete_subtask(
+                self.project,
+                "delayed-commit",
+                "task1-fg",
+                status="passed",
+                evidence={"acceptance": "passed"},
+            )
+            delivery.write_text(
+                "package task1fg\n// approved follow-up\n", encoding="utf-8"
+            )
+            self.git("add", "task1-fg.go")
+            result = self.state.approve_task_commit(
+                self.project, "delayed-commit", "task1-fg"
+            )
+
+        checkpoint = json.loads(
+            (coding / "checkpoints" / "task1-fg.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(result["current_task"], "task1-tcc")
         self.assertRegex(result["commit_sha"], r"^[0-9a-f]{40}$")
-        self.assertEqual(self.git("show", "--name-only", "--format=", "HEAD"), "task1-fg.go")
+        self.assertEqual(checkpoint["status"], "completed")
         self.assertEqual(checkpoint["staged_files"], ["task1-fg.go"])
         self.assertEqual(checkpoint["commit_sha"], result["commit_sha"])
         self.assertRegex(checkpoint["snapshot_sha"], r"^[0-9a-f]{64}$")
-        self.assertEqual(tasks["current_task"], "task1-tcc")
+        committed = self.git("show", "HEAD:task1-fg.go")
+        self.assertIn("approved follow-up", committed)
 
     def test_subtask_commit_rejects_empty_dirty_or_future_task_delivery(self) -> None:
         self.initialize_git_repository()
@@ -822,13 +872,16 @@ class CoshHammerStateTest(unittest.TestCase):
             with self.subTest(name=name):
                 with mock.patch.object(self.state, "verify_handoff", return_value=gate):
                     self.state.begin_subtask(self.project, work_id, "task1-fg")
+                    self.state.complete_subtask(
+                        self.project,
+                        work_id,
+                        "task1-fg",
+                        status="passed",
+                        evidence={"acceptance": "passed"},
+                    )
                     with self.assertRaisesRegex(self.state.CoshHammerError, message):
-                        self.state.complete_subtask(
-                            self.project,
-                            work_id,
-                            "task1-fg",
-                            status="passed",
-                            evidence={"acceptance": "passed"},
+                        self.state.approve_task_commit(
+                            self.project, work_id, "task1-fg"
                         )
             self.git("reset", "--hard", "HEAD")
             for candidate in ("other.go", "task1-fg.go", "task1-tcc.go"):
@@ -891,7 +944,9 @@ class CoshHammerStateTest(unittest.TestCase):
         coding = self.initialize_coding_work("global-dashboard")
         spec = self.global_coding_task_spec()
         for index, task in enumerate(spec["tasks"]):
-            task["status"] = "passed" if index < 2 else "pending"
+            task["status"] = "completed" if index < 2 else "pending"
+            if index < 2:
+                task["commit_sha"] = str(index + 1) * 40
         (coding / "tasks.json").write_text(
             json.dumps(
                 {
@@ -923,7 +978,7 @@ class CoshHammerStateTest(unittest.TestCase):
                 json.dumps(
                     {
                         "task": task_id,
-                        "status": "passed",
+                        "status": "completed",
                         "commit_sha": str(index) * 40,
                         "staged_files": [f"{task_id}.go"],
                     }
@@ -945,7 +1000,7 @@ class CoshHammerStateTest(unittest.TestCase):
         )
         self.assertNotIn("next_hammer_task", status["coding"])
 
-    def test_live_status_normalizes_legacy_completed_task_as_read_only_passed(self) -> None:
+    def test_live_status_normalizes_legacy_passed_commit_as_read_only_completed(self) -> None:
         coding = self.initialize_coding_work()
         (coding / "tasks.json").write_text(
             json.dumps(
@@ -957,7 +1012,8 @@ class CoshHammerStateTest(unittest.TestCase):
                             "id": "TASK1-CONFIG-CONTROL-PLANE",
                             "hammer_parent": "Task 1",
                             "title": "Implement control plane",
-                            "status": "completed",
+                            "status": "passed",
+                            "commit_sha": "1" * 40,
                             "acceptance": ["request path never calls TCC Getter"],
                         }
                     ],
@@ -970,8 +1026,8 @@ class CoshHammerStateTest(unittest.TestCase):
 
         self.assertEqual(status["coding"]["progress"]["completed"], 1)
         self.assertEqual(status["coding"]["progress"]["total"], 1)
-        self.assertEqual(status["coding"]["tasks"][0]["status"], "passed")
-        self.assertEqual(status["coding"]["tasks"][0]["source_status"], "completed")
+        self.assertEqual(status["coding"]["tasks"][0]["status"], "completed")
+        self.assertEqual(status["coding"]["tasks"][0]["source_status"], "passed")
         self.assertEqual(status["coding"]["next_action"], "legacy_snapshot_readonly")
         self.assertEqual(
             status["coding"]["compatibility"],
@@ -1012,6 +1068,18 @@ class CoshHammerStateTest(unittest.TestCase):
                 "H1-S1",
                 status="passed",
                 evidence={"summary": "核心逻辑完成"},
+            )
+            self.assertEqual(result["status"], "awaiting_commit")
+            with self.assertRaisesRegex(self.state.CoshHammerError, "当前"):
+                self.state.apply_control(
+                    self.project,
+                    "coding-work",
+                    {"action": "authorize-task", "task": "H1-S2"},
+                )
+            with self.assertRaisesRegex(self.state.CoshHammerError, "当前"):
+                self.state.begin_subtask(self.project, "coding-work", "H1-S2")
+            result = self.state.approve_task_commit(
+                self.project, "coding-work", "H1-S1"
             )
 
         self.assertEqual(result["current_task"], "H1-S2")
@@ -1095,7 +1163,7 @@ class CoshHammerStateTest(unittest.TestCase):
                 )
 
     def test_continuous_mode_advances_without_per_task_authorization(self) -> None:
-        self.initialize_coding_work()
+        coding = self.initialize_coding_work()
         self.initialize_git_repository()
         gate = {
             "status": "passed",
@@ -1126,12 +1194,17 @@ class CoshHammerStateTest(unittest.TestCase):
                 status="passed",
                 evidence={"summary": "核心逻辑完成"},
             )
-            second = self.state.begin_subtask(
-                self.project, "coding-work", "H1-S2"
+            self.assertEqual(first["status"], "awaiting_commit")
+            first = self.state.approve_task_commit(
+                self.project, "coding-work", "H1-S1"
             )
+            state = json.loads(
+                (coding / "tasks.json").read_text(encoding="utf-8")
+            )
+            second = next(item for item in state["tasks"] if item["id"] == "H1-S2")
 
         self.assertEqual(first["current_task"], "H1-S2")
-        self.assertEqual(second["task"]["status"], "running")
+        self.assertEqual(second["status"], "running")
 
     def test_blocked_subtask_does_not_advance_to_next_task(self) -> None:
         self.initialize_coding_work()
@@ -1314,6 +1387,11 @@ class CoshHammerStateTest(unittest.TestCase):
             ).command,
             "begin-subtask",
         )
+        approved = parser.parse_args(
+            ["approve-task-commit", *common, "--task-id", "H1-S1"]
+        )
+        self.assertEqual(approved.command, "approve-task-commit")
+        self.assertEqual(approved.task_id, "H1-S1")
         self.assertEqual(
             parser.parse_args(
                 [
@@ -2038,6 +2116,78 @@ class CoshHammerStateTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["--project", str(self.project), "--port", "49999"])
 
+    def test_control_approves_only_current_awaiting_commit_task(self) -> None:
+        self.initialize_git_repository()
+        coding = self.activate_global_delivery_work("control-commit")
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+        delivery = self.project / "task1-fg.go"
+        delivery.write_text("package task1fg\n", encoding="utf-8")
+        self.git("add", "task1-fg.go")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            self.state.begin_subtask(self.project, "control-commit", "task1-fg")
+            self.state.complete_subtask(
+                self.project,
+                "control-commit",
+                "task1-fg",
+                status="passed",
+                evidence={"acceptance": "passed"},
+            )
+            live = {
+                "stale": False,
+                "coding": {"ownership": {"status": "cosh_active"}},
+            }
+            with mock.patch.object(self.state, "_live_status", return_value=live):
+                with self.assertRaisesRegex(self.state.CoshHammerError, "当前"):
+                    self.state.apply_control(
+                        self.project,
+                        "control-commit",
+                        {"action": "approve-task-commit", "task": "task1-tcc"},
+                    )
+                result = self.state.apply_control(
+                    self.project,
+                    "control-commit",
+                    {"action": "approve-task-commit", "task": "task1-fg"},
+                )
+
+        checkpoint = json.loads(
+            (coding / "checkpoints" / "task1-fg.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(checkpoint["status"], "completed")
+        self.assertEqual(result["committed_task"], "task1-fg")
+
+    def test_dashboard_projects_awaiting_commit_progress(self) -> None:
+        self.initialize_git_repository()
+        self.activate_global_delivery_work("progress-commit")
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+        delivery = self.project / "task1-fg.go"
+        delivery.write_text("package task1fg\n", encoding="utf-8")
+        self.git("add", "task1-fg.go")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            self.state.begin_subtask(self.project, "progress-commit", "task1-fg")
+            self.state.complete_subtask(
+                self.project,
+                "progress-commit",
+                "task1-fg",
+                status="passed",
+                evidence={"acceptance": "passed"},
+            )
+        status = self.state.build_status(self.project, "progress-commit")
+        self.assertEqual(status["coding"]["next_action"], "approve_current_task_commit")
+        self.assertEqual(status["coding"]["progress"]["implemented"], 1)
+        self.assertEqual(status["coding"]["progress"]["committed"], 0)
+        self.assertEqual(status["coding"]["progress"]["total"], 4)
+        self.assertEqual(status["coding"]["current_task"]["status"], "awaiting_commit")
+
     def test_stale_cache_never_becomes_hammer_evidence(self) -> None:
         self.state.initialize_launch(
             self.project,
@@ -2184,6 +2334,9 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertNotIn("localStorage", js)
         self.assertIn("set-mode", js)
         self.assertIn("authorize-task", js)
+        self.assertIn("approve-task-commit", js)
+        self.assertIn("批准写入", js)
+        self.assertIn("实现已完成，待批准写入", js)
         self.assertNotIn("authorize-hammer-task", js)
         self.assertIn("coding-parent-group", js)
         self.assertIn("checkpoint?.commit_sha", js)

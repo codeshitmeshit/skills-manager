@@ -343,7 +343,7 @@ function renderCoding(data) {
     const progressCopy = element("div");
     progressCopy.append(
       element("p", "eyebrow", "任务进度"),
-      element("strong", "", `${progress.completed || 0} / ${progress.total || tasks.length}`),
+      element("strong", "", `实现完成 ${progress.implemented || 0} / ${progress.total || tasks.length} · 已提交 ${progress.committed || 0} / ${progress.total || tasks.length}`),
       element("span", "muted", `下一动作：${data.coding?.next_action || "等待状态"}`),
     );
     const progressTrack = element("div", "task-progress-track");
@@ -371,6 +371,13 @@ function renderCoding(data) {
       authorize.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
       authorize.addEventListener("click", () => postControl({ action: "authorize-task", task: current.id }).catch(error => alert(error.message)));
       actions.append(authorize);
+    }
+    if (current?.status === "awaiting_commit") {
+      const approve = element("button", "approve-commit", "批准写入");
+      approve.type = "button";
+      approve.disabled = !data.controls_enabled || !data.coding?.controls_enabled;
+      approve.addEventListener("click", () => postControl({ action: "approve-task-commit", task: current.id }).catch(error => alert(error.message)));
+      actions.append(approve);
     }
     settings.append(settingCopy, actions);
     fragment.append(settings);
@@ -420,6 +427,17 @@ function renderCoding(data) {
       );
       heading.append(copy, element("strong", "task-status", selectedTask.status || "pending"));
       detail.append(heading);
+      if (selectedTask.status === "awaiting_commit") {
+        const pendingCommit = element("section", "task-evidence awaiting-commit");
+        pendingCommit.append(
+          element("h4", "", "实现已完成，待批准写入"),
+          element("p", "muted", "批准时会重新校验当前暂存区，并在提交成功后才允许推进下一任务。"),
+        );
+        const staged = element("ul");
+        (selectedTask.staged_files?.length ? selectedTask.staged_files : ["当前暂存区为空"]).forEach(path => staged.append(element("li", "", path)));
+        pendingCommit.append(staged);
+        detail.append(pendingCommit);
+      }
       const details = element("div", "task-details");
       [
         ["修改文件", selectedTask.expected_files],

@@ -705,7 +705,7 @@ def begin_subtask(project: Path, work_id: str, task_id: str) -> dict[str, Any]:
     unmet_dependencies = [
         dependency
         for dependency in selected.get("dependencies", [])
-        if status_by_id.get(str(dependency)) != "passed"
+        if status_by_id.get(str(dependency)) not in {"completed", "passed"}
     ]
     if unmet_dependencies:
         raise CoshHammerError(
@@ -756,7 +756,7 @@ def complete_subtask(
         "hammer_parent": selected["hammer_parent"],
         "status": status,
         "evidence": dict(evidence),
-        "completed_at": now,
+        "implementation_completed_at": now,
     }
     if status == "blocked":
         next_task = None
@@ -766,37 +766,19 @@ def complete_subtask(
         state["current_task"] = task_id
         state["status"] = "blocked"
     else:
-        snapshot = _task_delivery_snapshot(active_project, selected, raw_tasks)
-        commit = _commit_subtask(
-            active_project, work_id, selected, evidence, snapshot=snapshot
-        )
-        checkpoint.update(snapshot)
-        checkpoint["commit_sha"] = commit
+        checkpoint["status"] = "awaiting_commit"
         _atomic_json(
             root / "coding" / "checkpoints" / f"{task_id}.json",
             checkpoint,
             owner_root=root,
         )
-        selected["status"] = status
-        selected["completed_at"] = now
+        selected["status"] = "awaiting_commit"
+        selected["implementation_completed_at"] = now
         selected["evidence"] = dict(evidence)
-        selected["commit_sha"] = commit
-        next_task = next(
-            (
-                item
-                for item in raw_tasks
-                if isinstance(item, dict) and item.get("status") == "pending"
-            ),
-            None,
-        )
-        state["current_task"] = next_task.get("id") if next_task else None
-        state["status"] = "passed" if next_task is None else "running"
+        state["current_task"] = task_id
+        state["status"] = "awaiting_commit"
     state["updated_at"] = now
     ownership["updated_at"] = now
-    if control.get("mode", "single") == "single":
-        control.pop("authorized_task", None)
-        control["updated_at"] = now
-        _atomic_json(root / "coding" / "control.json", control, owner_root=root)
     if status == "blocked":
         _atomic_json(
             root / "coding" / "checkpoints" / f"{task_id}.json",
@@ -810,9 +792,103 @@ def complete_subtask(
         "completed_task": task_id,
         "current_task": state["current_task"],
     }
-    if status == "passed":
-        result["commit_sha"] = checkpoint["commit_sha"]
     return result
+
+
+def approve_task_commit(
+    project: Path, work_id: str, task_id: str
+) -> dict[str, Any]:
+    root, active_project, ownership, state, control = _coding_context(project, work_id)
+    if state.get("current_task") != task_id:
+        raise CoshHammerError("只能批准当前 Cosh 细分任务写入")
+    raw_tasks = state.get("tasks")
+    if not isinstance(raw_tasks, list):
+        raise CoshHammerError("coding/tasks.json 的 tasks 无效")
+    selected = next(
+        (
+            item
+            for item in raw_tasks
+            if isinstance(item, dict) and item.get("id") == task_id
+        ),
+        None,
+    )
+    if selected is None or selected.get("status") != "awaiting_commit":
+        raise CoshHammerError("当前 Cosh 细分任务不处于待批准写入状态")
+    checkpoint_path = root / "coding" / "checkpoints" / f"{task_id}.json"
+    if not checkpoint_path.is_file():
+        raise CoshHammerError("当前 Cosh 细分任务缺少待提交 checkpoint")
+    checkpoint = _read_json(checkpoint_path)
+    if checkpoint.get("task") != task_id or checkpoint.get("status") != "awaiting_commit":
+        raise CoshHammerError("当前 Cosh 细分任务待提交 checkpoint 无效")
+
+    snapshot = _task_delivery_snapshot(active_project, selected, raw_tasks)
+    evidence = checkpoint.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise CoshHammerError("当前 Cosh 细分任务 checkpoint 缺少实现证据")
+    commit = _commit_subtask(
+        active_project, work_id, selected, evidence, snapshot=snapshot
+    )
+    now = _now()
+    checkpoint.update(snapshot)
+    checkpoint.update(
+        {
+            "status": "completed",
+            "commit_sha": commit,
+            "committed_at": now,
+        }
+    )
+    selected.update(
+        {
+            "status": "completed",
+            "commit_sha": commit,
+            "committed_at": now,
+        }
+    )
+    next_task = next(
+        (
+            item
+            for item in raw_tasks
+            if isinstance(item, dict) and item.get("status") == "pending"
+        ),
+        None,
+    )
+    mode = control.get("mode", "single")
+    if mode not in {"single", "continuous"}:
+        raise CoshHammerError("Cosh 编码推进模式无效")
+    if mode == "single":
+        control.pop("authorized_task", None)
+    elif next_task is not None:
+        status_by_id = {
+            str(item.get("id")): str(item.get("status"))
+            for item in raw_tasks
+            if isinstance(item, dict)
+        }
+        unmet = [
+            dependency
+            for dependency in next_task.get("dependencies", [])
+            if status_by_id.get(str(dependency)) not in {"completed", "passed"}
+        ]
+        if unmet:
+            raise CoshHammerError(
+                "下一 Cosh 细分任务依赖尚未通过：" + ", ".join(unmet)
+            )
+        next_task["status"] = "running"
+        next_task["started_at"] = now
+    state["current_task"] = next_task.get("id") if next_task else None
+    state["status"] = "completed" if next_task is None else "running"
+    state["updated_at"] = now
+    ownership["updated_at"] = now
+    control["updated_at"] = now
+    _atomic_json(checkpoint_path, checkpoint, owner_root=root)
+    _atomic_json(root / "coding" / "tasks.json", state, owner_root=root)
+    _atomic_json(root / "coding" / "ownership.json", ownership, owner_root=root)
+    _atomic_json(root / "coding" / "control.json", control, owner_root=root)
+    return {
+        "status": state["status"],
+        "committed_task": task_id,
+        "current_task": state["current_task"],
+        "commit_sha": commit,
+    }
 
 
 def _staged_paths(project: Path) -> list[str]:
@@ -950,7 +1026,7 @@ def complete_coding(project: Path, work_id: str) -> dict[str, Any]:
     root, active_project, ownership, state, _control = _coding_context(project, work_id)
     raw_tasks = state.get("tasks")
     if not isinstance(raw_tasks, list) or not raw_tasks or any(
-        not isinstance(item, dict) or item.get("status") != "passed"
+        not isinstance(item, dict) or item.get("status") != "completed"
         for item in raw_tasks
     ):
         raise CoshHammerError("Cosh 细分任务尚未全部通过，不能交还 Hammer")
@@ -965,7 +1041,7 @@ def complete_coding(project: Path, work_id: str) -> dict[str, Any]:
         if not checkpoint_path.is_file():
             raise CoshHammerError(f"Cosh 任务 {task_id} 缺少 checkpoint")
         checkpoint = _read_json(checkpoint_path)
-        if checkpoint.get("status") != "passed" or checkpoint.get("task") != task_id:
+        if checkpoint.get("status") != "completed" or checkpoint.get("task") != task_id:
             raise CoshHammerError(f"Cosh 任务 {task_id} 的 checkpoint 状态无效")
         raw_commit = checkpoint.get("commit_sha")
         if not isinstance(raw_commit, str) or task.get("commit_sha") != raw_commit:
@@ -1605,10 +1681,9 @@ def _project_coding_task(task: Mapping[str, Any]) -> tuple[dict[str, Any], bool]
     projected = dict(task)
     source_status = str(projected.get("status", "pending")).strip().lower()
     status_aliases = {
-        "completed": "passed",
-        "complete": "passed",
-        "done": "passed",
-        "success": "passed",
+        "complete": "completed",
+        "done": "completed",
+        "success": "completed",
         "in_progress": "running",
         "active": "running",
         "waiting": "pending",
@@ -1617,7 +1692,15 @@ def _project_coding_task(task: Mapping[str, Any]) -> tuple[dict[str, Any], bool]
         "error": "blocked",
     }
     normalized_status = status_aliases.get(source_status, source_status)
-    if normalized_status not in {"pending", "running", "passed", "blocked"}:
+    if source_status == "passed" and isinstance(projected.get("commit_sha"), str):
+        normalized_status = "completed"
+    if normalized_status not in {
+        "pending",
+        "running",
+        "awaiting_commit",
+        "completed",
+        "blocked",
+    }:
         normalized_status = "pending"
     legacy = normalized_status != source_status or any(
         field not in projected
@@ -1697,12 +1780,23 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
                 (
                     item
                     for item in coding_tasks
-                    if str(item.get("status", "pending")) in {"pending", "running"}
+                    if str(item.get("status", "pending"))
+                    in {"pending", "running", "awaiting_commit"}
                 ),
                 None,
             )
-    completed_tasks = sum(
-        1 for item in coding_tasks if str(item.get("status")) == "passed"
+        if (
+            current_coding_task is not None
+            and current_coding_task.get("status") == "awaiting_commit"
+        ):
+            current_coding_task["staged_files"] = _staged_paths(active_project)
+    implemented_tasks = sum(
+        1
+        for item in coding_tasks
+        if str(item.get("status")) in {"awaiting_commit", "completed"}
+    )
+    committed_tasks = sum(
+        1 for item in coding_tasks if str(item.get("status")) == "completed"
     )
     blocked_tasks = sum(
         1 for item in coding_tasks if str(item.get("status")) == "blocked"
@@ -1720,7 +1814,7 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
                 1
                 for task in coding_tasks
                 if task.get("hammer_parent") == parent
-                and task.get("status") == "passed"
+                and task.get("status") == "completed"
             ),
             "total": sum(
                 1 for task in coding_tasks if task.get("hammer_parent") == parent
@@ -1734,8 +1828,10 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
         coding_next_action = "hammer_continue_after_coding_stage"
     elif blocked_tasks:
         coding_next_action = "resolve_current_blocker"
-    elif coding_tasks and completed_tasks == len(coding_tasks):
+    elif coding_tasks and committed_tasks == len(coding_tasks):
         coding_next_action = "complete_coding_stage"
+    elif current_coding_task and current_coding_task.get("status") == "awaiting_commit":
+        coding_next_action = "approve_current_task_commit"
     elif current_coding_task and current_coding_task.get("status") == "running":
         coding_next_action = "execute_current_task"
     elif current_coding_task and mode == "single" and control.get(
@@ -1774,10 +1870,12 @@ def _live_status(project: Path, work_id: str) -> dict[str, Any]:
                 "legacy_single_parent_readonly" if legacy_task_schema else None
             ),
             "progress": {
-                "completed": completed_tasks,
+                "implemented": implemented_tasks,
+                "committed": committed_tasks,
+                "completed": committed_tasks,
                 "blocked": blocked_tasks,
                 "total": len(coding_tasks),
-                "percent": round(completed_tasks / len(coding_tasks) * 100)
+                "percent": round(committed_tasks / len(coding_tasks) * 100)
                 if coding_tasks
                 else 0,
             },
@@ -1865,6 +1963,11 @@ def apply_control(
             raise CoshHammerError("只能授权 pending 的当前 Cosh 细分任务")
         _coding_context(project, work_id)
         state["authorized_task"] = task.strip()
+    elif action == "approve-task-commit":
+        task = command.get("task")
+        if not isinstance(task, str) or not task.strip():
+            raise CoshHammerError("缺少 task")
+        return approve_task_commit(project, work_id, task.strip())
     else:
         raise CoshHammerError("不支持的插件控制动作")
     state["updated_at"] = _now()
@@ -1933,6 +2036,12 @@ def build_parser() -> argparse.ArgumentParser:
     complete.add_argument("--task-id", required=True)
     complete.add_argument("--status", choices=("passed", "blocked"), required=True)
     complete.add_argument("--evidence-file", type=Path, required=True)
+    approve = sub.add_parser(
+        "approve-task-commit", help="批准当前 Cosh 细分任务写入 Git"
+    )
+    approve.add_argument("--project", type=Path, required=True)
+    approve.add_argument("--work", required=True)
+    approve.add_argument("--task-id", required=True)
     finish = sub.add_parser("complete-coding", help="完成全局编码阶段并一次性交还 Hammer")
     finish.add_argument("--project", type=Path, required=True)
     finish.add_argument("--work", required=True)
@@ -1982,6 +2091,10 @@ def main() -> int:
                 args.task_id,
                 status=args.status,
                 evidence=_read_json(args.evidence_file),
+            )
+        elif args.command == "approve-task-commit":
+            payload = approve_task_commit(
+                args.project, args.work, args.task_id
             )
         elif args.command == "complete-coding":
             payload = complete_coding(args.project, args.work)
