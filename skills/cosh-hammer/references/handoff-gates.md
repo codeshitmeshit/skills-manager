@@ -28,7 +28,7 @@ python3 <skill-root>/scripts/cosh_hammer_state.py verify-coding \
 
 ## 执行与最终交还
 
-每次 `begin-subtask`/`complete-subtask` 都重新确认 Plan SHA、父任务顺序、活动目录、观察板和所有权。通过任务还必须满足：暂存区非空、暂存路径只属于当前任务、当前和未来任务无相关未暂存/未跟踪改动。提交成功并写入 checkpoint 后才能解锁下一任务。
+每次 `begin-subtask`/`complete-subtask` 都重新确认 Plan SHA、父任务顺序、活动目录、观察板和所有权。`complete-subtask` 通过时只写 `awaiting_commit` 实现证据，不创建 commit、不解锁下一任务。显式 `approve-task-commit` 必须再次确认同一上下文，并满足：暂存区非空、暂存路径只属于当前任务、当前和未来任务无相关未暂存/未跟踪改动。提交成功并把 checkpoint 更新为 `completed` 后才能解锁下一任务；普通“继续”或模式切换不能批准写入。
 
 中间父任务通过不触发 Hammer handoff。全部任务通过后运行：
 
@@ -38,7 +38,7 @@ python3 <skill-root>/scripts/cosh_hammer_state.py complete-coding \
   --work <work-id>
 ```
 
-命令逐项校验 checkpoint、commit 可达性、提交文件、提交顺序和最终 HEAD，只写一次 `coding-stage-handoff.json`。Hammer 仅在消费 `DONE + hammer_continue_after_coding_stage` 后恢复并进入编码后 Gate。
+命令拒绝任何 `awaiting_commit` 任务，逐项校验 `completed` checkpoint、commit 可达性、提交文件、提交顺序和最终 HEAD，只写一次 `coding-stage-handoff.json`。Hammer 仅在消费 `DONE + hammer_continue_after_coding_stage` 后恢复并进入编码后 Gate。
 
 ## 迟到接入与技术边界
 

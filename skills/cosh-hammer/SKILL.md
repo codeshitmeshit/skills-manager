@@ -42,8 +42,8 @@ description: 基于 Hammer 主流程提供全局独立编码阶段与实时研�
 2. 只读 Hammer design、三路评审结论、plan 和完整 coding parent task 顺序。一次性细化全部 Hammer coding task：统一执行 CodeGraph 与源码复核，覆盖完整预计修改面，并生成代码事实、精准定位、编码计划和全局详细任务树；不得把后续父任务留到前一父任务完成后再分析。
 3. 每个细分任务必须包含父任务、说明、修改文件、关键符号、实施步骤、显式依赖和验收条件。运行 `activate-coding` 一次性取得整个编码阶段所有权；只有 `ownership.json` 为 schema v2、`scope: full_coding_stage`、`status: cosh_active` 后才允许修改业务代码。
 4. 按观察板选择的单独或连续模式，通过 `begin-subtask` 与 `complete-subtask` 执行全局任务树。默认单独推进并逐项授权当前任务；连续模式可跨父任务组自动推进，但两种模式都不得越过依赖、范围、Plan SHA、活动目录或所有权门禁。
-5. 每个细分任务以 Git 暂存区为唯一交付物：暂存路径必须属于 `expected_files`，当前和未来任务不得残留相关未暂存/未跟踪实现改动。验收通过后由插件创建独立 commit/checkpoint，记录 staged files、snapshot SHA、commit SHA 与证据；`blocked` 只记录证据，不提交。
-6. 中间父任务完成时 Hammer 继续暂停，不生成父任务 handoff。所有详细任务通过后运行无 `--task`/`--commit-sha` 参数的 `complete-coding`；它对账全部 checkpoint、Git 历史与最终 HEAD，只交还一次 `DONE`、`completed_hammer_tasks`、`task_commits` 和 `next_action: hammer_continue_after_coding_stage`。若绑定 Meego 则携带同一 ID。
+5. `complete-subtask` 验收通过后把当前任务标记为 `awaiting_commit`，只记录实现证据，不创建 commit，也不解锁下一任务。用户可以继续修正当前任务；准备完成后必须显式“批准写入”。批准时以实时 Git 暂存区为唯一交付物，重新校验 `expected_files`、当前/未来任务相关未暂存或未跟踪改动，再创建该任务的独立 commit/checkpoint。提交成功是所有推进模式进入下一任务的共同硬门；`blocked` 只记录证据。
+6. 单独模式在提交成功后等待用户授权下一任务；连续模式只在提交成功后自动启动下一个依赖满足的任务。中间父任务完成时 Hammer 继续暂停，不生成父任务 handoff。所有详细任务均已提交后运行无 `--task`/`--commit-sha` 参数的 `complete-coding`；它对账全部 checkpoint、Git 历史与最终 HEAD，只交还一次 `DONE`、`completed_hammer_tasks`、`task_commits` 和 `next_action: hammer_continue_after_coding_stage`。若绑定 Meego 则携带同一 ID。
 7. Hammer 消费全局 handoff 后跳过 `completed_hammer_tasks` 对应的全部原生 coding worker，直接进入远程 UT、CI、最终 CR、BOE/E2E、验收、上报、MR 与归档等编码后原生流程。
 
 Hammer 已完成 Design/Plan 但本插件尚未初始化时，使用 `attach-existing-hammer` 迟到接入。它只能创建 `.cosh/**`、启动观察板并输出 Plan 修复要求；不得修改 `.hammer/**`。修复 Hammer Plan 后仍须依次通过 `verify-handoff` 与 `verify-coding`。
@@ -67,7 +67,7 @@ python3 <skill-root>/scripts/start_cosh_hammer_dashboard.py \
 
 端口冲突时直接报告并停止，不得随机换端口。观察板通过 SSE 实时读取 `.hammer/` 与 `.cosh/hammer-plugin/`，但所有控制只允许修改插件状态。
 
-页面以 Hammer 阶段组织为总览、需求、设计、三路评审、计划、编码、验证、交付和全部产物。计划页只读展示 Hammer Plan；独立编码页按 Hammer 父任务分组展示完整全局任务树、实时状态、checkpoint commit 与单独/连续推进控制。Hammer 与 Cosh 的文本、Markdown、JSON 产物可按需读取；二进制或超大文件只展示元信息。
+页面以 Hammer 阶段组织为总览、需求、设计、三路评审、计划、编码、验证、交付和全部产物。计划页只读展示 Hammer Plan；独立编码页按 Hammer 父任务分组展示完整全局任务树、实现完成数、已提交数、`awaiting_commit` 待批准状态、checkpoint commit 与单独/连续推进控制。Hammer 与 Cosh 的文本、Markdown、JSON 产物可按需读取；二进制或超大文件只展示元信息。
 
 ## 交付检查
 

@@ -14,9 +14,9 @@ Cosh 只在首个 coding task 到达后取得 `scope: full_coding_stage` 的临�
 
 ## 全局返回
 
-`activate-coding` 必须一次性接收完整 Hammer 父任务顺序及其详细任务映射。任务执行期间不按父任务边界返回 Hammer。每个详细任务通过时由插件提交暂存快照并记录 checkpoint。
+`activate-coding` 必须一次性接收完整 Hammer 父任务顺序及其详细任务映射。任务执行期间不按父任务边界返回 Hammer。每个详细任务实现通过时只进入 `awaiting_commit`；用户批准写入后，插件才校验实时暂存快照、创建独立 commit 并把 checkpoint 置为 `completed`。提交成功前不得开始下一任务。
 
-全部详细任务通过后，`complete-coding` 只生成一次 `coding-stage-handoff.json`：`status: DONE`、`completed_hammer_tasks`、`task_commits`、`next_action: hammer_continue_after_coding_stage`。Hammer 将列出的 coding task 全部视为已完成，跳过对应原生 worker 并进入编码后 Gate。Cosh 不发明 Hammer 状态。
+全部详细任务提交完成后，`complete-coding` 只生成一次 `coding-stage-handoff.json`：`status: DONE`、`completed_hammer_tasks`、`task_commits`、`next_action: hammer_continue_after_coding_stage`。Hammer 将列出的 coding task 全部视为已完成，跳过对应原生 worker 并进入编码后 Gate。Cosh 不发明 Hammer 状态。
 
 ## Meego 与 Worktree
 

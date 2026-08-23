@@ -821,6 +821,34 @@ def approve_task_commit(
     if checkpoint.get("task") != task_id or checkpoint.get("status") != "awaiting_commit":
         raise CoshHammerError("当前 Cosh 细分任务待提交 checkpoint 无效")
 
+    next_task = next(
+        (
+            item
+            for item in raw_tasks
+            if isinstance(item, dict) and item.get("status") == "pending"
+        ),
+        None,
+    )
+    mode = control.get("mode", "single")
+    if mode not in {"single", "continuous"}:
+        raise CoshHammerError("Cosh 编码推进模式无效")
+    if mode == "continuous" and next_task is not None:
+        status_by_id = {
+            str(item.get("id")): str(item.get("status"))
+            for item in raw_tasks
+            if isinstance(item, dict)
+        }
+        status_by_id[task_id] = "completed"
+        unmet = [
+            dependency
+            for dependency in next_task.get("dependencies", [])
+            if status_by_id.get(str(dependency)) not in {"completed", "passed"}
+        ]
+        if unmet:
+            raise CoshHammerError(
+                "下一 Cosh 细分任务依赖尚未通过：" + ", ".join(unmet)
+            )
+
     snapshot = _task_delivery_snapshot(active_project, selected, raw_tasks)
     evidence = checkpoint.get("evidence")
     if not isinstance(evidence, Mapping):
@@ -844,34 +872,9 @@ def approve_task_commit(
             "committed_at": now,
         }
     )
-    next_task = next(
-        (
-            item
-            for item in raw_tasks
-            if isinstance(item, dict) and item.get("status") == "pending"
-        ),
-        None,
-    )
-    mode = control.get("mode", "single")
-    if mode not in {"single", "continuous"}:
-        raise CoshHammerError("Cosh 编码推进模式无效")
     if mode == "single":
         control.pop("authorized_task", None)
     elif next_task is not None:
-        status_by_id = {
-            str(item.get("id")): str(item.get("status"))
-            for item in raw_tasks
-            if isinstance(item, dict)
-        }
-        unmet = [
-            dependency
-            for dependency in next_task.get("dependencies", [])
-            if status_by_id.get(str(dependency)) not in {"completed", "passed"}
-        ]
-        if unmet:
-            raise CoshHammerError(
-                "下一 Cosh 细分任务依赖尚未通过：" + ", ".join(unmet)
-            )
         next_task["status"] = "running"
         next_task["started_at"] = now
     state["current_task"] = next_task.get("id") if next_task else None

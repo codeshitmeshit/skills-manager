@@ -8,11 +8,11 @@
 
 ## 全局编码页
 
-编码页顶部展示完整阶段所有权、单独/连续模式、完成数、总数、当前详细任务与下一动作。左侧按 `hammer_task_order` 为每个 Hammer 父任务建立分组，并在组内展示全部详细任务；右侧展示选中任务的说明、文件、符号、步骤、依赖、验收、状态、完成证据、checkpoint commit 与 snapshot。
+编码页顶部展示完整阶段所有权、单独/连续模式、实现完成数、已提交数、总数、当前详细任务与下一动作。左侧按 `hammer_task_order` 为每个 Hammer 父任务建立分组，并在组内展示全部详细任务；右侧展示选中任务的说明、文件、符号、步骤、依赖、验收、状态、完成证据、checkpoint commit 与 snapshot。
 
-默认单独模式只显示当前 pending 详细任务授权；连续模式不显示逐任务授权。不存在父任务授权按钮。全部任务通过后显示“编码完成，等待交还 Hammer”；最终 handoff 后禁用控制并等待 Hammer 进入验证阶段。
+默认单独模式只显示当前 pending 详细任务授权；连续模式不显示逐任务授权。任务处于 `awaiting_commit` 时显示“实现已完成，待批准写入”、实时暂存文件和“批准写入”按钮，且两种模式都禁止提前进入下一任务。批准提交成功后，单独模式等待下一任务授权，连续模式自动启动下一个依赖满足的任务。不存在父任务授权按钮。全部任务提交后显示“编码完成，等待交还 Hammer”；最终 handoff 后禁用控制并等待 Hammer 进入验证阶段。
 
-schema v1 单父任务快照标记为 `legacy_single_parent_readonly`，历史 `completed`/`done` 等状态可归一为 `passed`，但始终禁用控制，不补写或伪造 schema v2 所有权。
+schema v1 单父任务快照标记为 `legacy_single_parent_readonly`，历史带 commit SHA 的 `passed`/`done` 等状态可归一为 `completed`，但始终禁用控制，不补写或伪造 schema v2 所有权。
 
 ## Hammer 投影与安全
 

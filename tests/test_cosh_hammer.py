@@ -64,6 +64,10 @@ class CoshHammerSkillTest(unittest.TestCase):
         self.assertIn("整个编码阶段", skill)
         self.assertIn("每个细分任务", skill)
         self.assertIn("只交还一次", skill)
+        self.assertIn("awaiting_commit", skill + references)
+        self.assertIn("批准写入", skill + references)
+        self.assertIn("不创建 commit", skill + references)
+        self.assertIn("提交成功", skill + references)
         self.assertNotIn("交还当前 Hammer 父任务", skill)
         self.assertNotIn("authorize-hammer-task", skill + references)
 
@@ -837,6 +841,42 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertRegex(checkpoint["snapshot_sha"], r"^[0-9a-f]{64}$")
         committed = self.git("show", "HEAD:task1-fg.go")
         self.assertIn("approved follow-up", committed)
+
+    def test_commit_approval_validates_next_dependencies_before_git_commit(self) -> None:
+        before = self.initialize_git_repository()
+        coding = self.activate_global_delivery_work("dependency-commit")
+        gate = {
+            "status": "passed",
+            "plan_sha256": "plan-sha",
+            "coding_tasks": ["Task 1", "Task 2", "Task 3"],
+            "active_project": str(self.project.resolve()),
+        }
+        delivery = self.project / "task1-fg.go"
+        delivery.write_text("package task1fg\n", encoding="utf-8")
+        self.git("add", "task1-fg.go")
+        with mock.patch.object(self.state, "verify_handoff", return_value=gate):
+            self.state.begin_subtask(self.project, "dependency-commit", "task1-fg")
+            self.state.complete_subtask(
+                self.project,
+                "dependency-commit",
+                "task1-fg",
+                status="passed",
+                evidence={"acceptance": "passed"},
+            )
+            tasks_path = coding / "tasks.json"
+            tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
+            tasks["tasks"][1]["dependencies"] = ["task3-consumer"]
+            tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+            with self.assertRaisesRegex(self.state.CoshHammerError, "依赖"):
+                self.state.approve_task_commit(
+                    self.project, "dependency-commit", "task1-fg"
+                )
+
+        self.assertEqual(self.git("rev-parse", "HEAD"), before)
+        checkpoint = json.loads(
+            (coding / "checkpoints" / "task1-fg.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(checkpoint["status"], "awaiting_commit")
 
     def test_subtask_commit_rejects_empty_dirty_or_future_task_delivery(self) -> None:
         self.initialize_git_repository()
