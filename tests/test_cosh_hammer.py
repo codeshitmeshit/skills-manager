@@ -23,6 +23,7 @@ STATE_SCRIPT = SKILL_DIR / "scripts" / "cosh_hammer_state.py"
 SERVER_SCRIPT = SKILL_DIR / "scripts" / "serve_cosh_hammer_dashboard.py"
 STARTER_SCRIPT = SKILL_DIR / "scripts" / "start_cosh_hammer_dashboard.py"
 FORMATTER_SCRIPT = SKILL_DIR / "assets" / "dashboard" / "artifact-formatters.js"
+STATUS_PRESENTER_SCRIPT = SKILL_DIR / "assets" / "dashboard" / "status-presenter.js"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -102,6 +103,29 @@ class CoshHammerSkillTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
+
+    def test_task_status_presenter_localizes_labels_and_color_tones(self) -> None:
+        script = (
+            f"const presenter = require({json.dumps(str(STATUS_PRESENTER_SCRIPT))});"
+            "const statuses = ['pending','running','awaiting_commit','completed',"
+            "'passed','blocked','failed','unexpected'];"
+            "process.stdout.write(JSON.stringify(statuses.map(status => presenter.present(status))));"
+        )
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout),
+            [
+                {"label": "待开始", "tone": "pending"},
+                {"label": "进行中", "tone": "running"},
+                {"label": "待批准写入", "tone": "awaiting-commit"},
+                {"label": "已完成", "tone": "completed"},
+                {"label": "已完成", "tone": "completed"},
+                {"label": "已阻塞", "tone": "blocked"},
+                {"label": "失败", "tone": "blocked"},
+                {"label": "未知状态", "tone": "unknown"},
+            ],
+        )
 
     def test_markdown_formatter_returns_structured_reading_blocks(self) -> None:
         value = self.run_formatter(

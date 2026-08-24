@@ -25,6 +25,13 @@ function element(tag, className, text) {
   return node;
 }
 
+function taskStatusBadge(status) {
+  const presentation = DashboardStatus.present(status);
+  const badge = element("span", `task-status ${presentation.tone}`, presentation.label);
+  badge.title = status || "unknown";
+  return badge;
+}
+
 function addDefinition(list, label, value) {
   const row = element("div");
   row.append(element("dt", "", label), element("dd", "", value || "—"));
@@ -427,7 +434,7 @@ function renderCoding(data) {
         item.append(
           element("span", "task-index", task.id || "TASK"),
           element("strong", "", task.title || task.id),
-          element("span", "task-status", task.status || "pending"),
+          taskStatusBadge(task.status),
         );
         item.addEventListener("click", () => {
           selectedCodingTaskId = task.id;
@@ -446,7 +453,7 @@ function renderCoding(data) {
         element("h3", "", selectedTask.title || selectedTask.id),
         element("p", "task-description", selectedTask.description || (selectedTask.legacy ? "旧版任务未记录详细说明" : "未记录任务说明")),
       );
-      heading.append(copy, element("strong", "task-status", selectedTask.status || "pending"));
+      heading.append(copy, taskStatusBadge(selectedTask.status));
       detail.append(heading);
       if (selectedTask.status === "awaiting_commit") {
         const pendingCommit = element("section", "task-evidence awaiting-commit");
