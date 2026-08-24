@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cosh Hammer 研发观察板</title>
+    <link rel="icon" type="image/jpeg" href="/cosh-hammer-icon.jpg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -18,15 +19,17 @@
       </header>
       <section id="warning" hidden></section>
       <nav class="tabs" role="tablist" aria-label="Hammer 研发阶段">
-        <button type="button" role="tab" data-tab="overview">总览</button>
-        <button type="button" role="tab" data-tab="requirement">需求</button>
-        <button type="button" role="tab" data-tab="design">设计</button>
-        <button type="button" role="tab" data-tab="review">三路评审</button>
-        <button type="button" role="tab" data-tab="plan">计划</button>
-        <button type="button" role="tab" data-tab="coding">编码</button>
-        <button type="button" role="tab" data-tab="validation">验证</button>
-        <button type="button" role="tab" data-tab="delivery">交付</button>
-        <button type="button" role="tab" data-tab="artifacts">全部产物</button>
+        <div class="hammer-tabs" data-tab-group="hammer" role="presentation">
+          <button type="button" role="tab" data-tab="overview">总览</button>
+          <button type="button" role="tab" data-tab="requirement">需求</button>
+          <button type="button" role="tab" data-tab="design">设计</button>
+          <button type="button" role="tab" data-tab="review">三路评审</button>
+          <button type="button" role="tab" data-tab="plan">计划</button>
+          <button type="button" role="tab" data-tab="validation">验证</button>
+          <button type="button" role="tab" data-tab="delivery">交付</button>
+          <button type="button" role="tab" data-tab="artifacts">全部产物</button>
+        </div>
+        <button type="button" role="tab" class="coding-tab" data-tab="coding">编码</button>
       </nav>
       <section id="viewport" class="viewport" role="tabpanel"></section>
     </main>

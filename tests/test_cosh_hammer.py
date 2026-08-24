@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import hashlib
+from html.parser import HTMLParser
 import io
 import json
 import pathlib
@@ -1731,6 +1732,54 @@ class CoshHammerStateTest(unittest.TestCase):
             ("cosh", "dashboard/dashboard-state.json"), artifacts
         )
 
+    def test_coding_artifact_inventory_separates_core_outputs_from_process_state(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="artifact-filter",
+            refined_requirement="编码页只展示核心编码产物。",
+            source={"kind": "text", "value": "过滤编码过程文件"},
+            hammer_root=self.hammer_root,
+        )
+        coding = (
+            self.project
+            / ".cosh"
+            / "hammer-plugin"
+            / "artifact-filter"
+            / "coding"
+        )
+        (coding / "amendments").mkdir(parents=True)
+        (coding / "checkpoints").mkdir()
+        core_paths = (
+            "code-facts.json",
+            "change-surface.json",
+            "locations.json",
+            "implementation-plan.md",
+            "coding-stage-handoff.json",
+        )
+        internal_paths = (
+            "amendments/scope.json",
+            "checkpoints/task-1.json",
+            "control.json",
+            "tasks.json",
+            "ownership.json",
+        )
+        for relative_path in (*core_paths, *internal_paths):
+            path = coding / relative_path
+            path.write_text("{}\n", encoding="utf-8")
+
+        artifacts = {
+            item["path"]: item["category"]
+            for item in self.state.list_artifacts(self.project, "artifact-filter")
+            if item["scope"] == "cosh"
+        }
+
+        for relative_path in core_paths:
+            self.assertEqual(artifacts[f"coding/{relative_path}"], "coding")
+        for relative_path in internal_paths:
+            self.assertEqual(
+                artifacts[f"coding/{relative_path}"], "coding_internal"
+            )
+
     def test_review_round_outputs_are_classified_and_projected_as_results(self) -> None:
         self.state.initialize_launch(
             self.project,
@@ -2350,6 +2399,43 @@ class CoshHammerStateTest(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
+    def test_dashboard_declares_and_serves_selected_favicon(self) -> None:
+        class FaviconParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.href: str | None = None
+
+            def handle_starttag(self, tag, attrs) -> None:
+                attributes = dict(attrs)
+                rel = str(attributes.get("rel", "")).split()
+                if tag == "link" and "icon" in rel:
+                    self.href = attributes.get("href")
+
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            self.server.make_handler(self.project, "favicon-work"),
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address[:2]
+            with urllib.request.urlopen(f"http://{host}:{port}/") as response:
+                parser = FaviconParser()
+                parser.feed(response.read().decode("utf-8"))
+            self.assertIsNotNone(parser.href, "观察板页面应声明 favicon")
+
+            with urllib.request.urlopen(
+                f"http://{host}:{port}{parser.href}"
+            ) as response:
+                icon = response.read()
+                self.assertEqual(response.headers.get_content_type(), "image/jpeg")
+            self.assertGreater(len(icon), 1024)
+            self.assertTrue(icon.startswith(b"\xff\xd8\xff"))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_dashboard_assets_use_sse_and_our_observation_board(self) -> None:
         html = (SKILL_DIR / "assets" / "dashboard" / "index.html").read_text(encoding="utf-8")
         js = (SKILL_DIR / "assets" / "dashboard" / "app.js").read_text(encoding="utf-8")
@@ -2382,6 +2468,8 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertIn("checkpoint?.commit_sha", js)
         self.assertIn("data.coding?.controls_enabled", js)
         self.assertIn("Hammer 已暂停编码，Cosh 正在执行全局细分任务", js)
+        self.assertIn("artifact-disclosure", js)
+        self.assertIn('artifactDisclosure(data, "coding", "编码产物")', js)
         for detail in ("修改文件", "关键符号", "实施步骤", "验收条件", "任务进度"):
             self.assertIn(detail, js)
         for layout in ("coding-workspace", "coding-task-rail", "coding-task-detail"):
@@ -2389,6 +2477,63 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertIn('data.coding?.next_action', js)
         self.assertIn("textContent", js)
         self.assertNotIn("innerHTML", js)
+
+    def test_dashboard_keeps_coding_outside_hammer_stage_tabs(self) -> None:
+        class NavigationParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.stack: list[tuple[str, dict[str, str | None]]] = []
+                self.navigation_found = False
+                self.hammer_tab_names: list[str | None] = []
+                self.coding_tab_class: str | None = None
+
+            def handle_starttag(self, tag, attrs) -> None:
+                attributes = dict(attrs)
+                inside_navigation = any(
+                    ancestor_tag == "nav"
+                    and ancestor_attrs.get("aria-label") == "Hammer 研发阶段"
+                    for ancestor_tag, ancestor_attrs in self.stack
+                )
+                if tag == "nav" and attributes.get("aria-label") == "Hammer 研发阶段":
+                    self.navigation_found = True
+                if tag == "button" and inside_navigation and self.stack:
+                    parent_tag, parent_attrs = self.stack[-1]
+                    if parent_tag == "div" and parent_attrs.get("data-tab-group") == "hammer":
+                        self.hammer_tab_names.append(attributes.get("data-tab"))
+                    if parent_tag == "nav" and attributes.get("data-tab") == "coding":
+                        self.coding_tab_class = attributes.get("class")
+                self.stack.append((tag, attributes))
+
+            def handle_endtag(self, tag) -> None:
+                while self.stack:
+                    open_tag, _ = self.stack.pop()
+                    if open_tag == tag:
+                        break
+
+        html = (SKILL_DIR / "assets" / "dashboard" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        parser = NavigationParser()
+        parser.feed(html)
+        self.assertTrue(parser.navigation_found)
+        self.assertEqual(
+            parser.hammer_tab_names,
+            [
+                "overview",
+                "requirement",
+                "design",
+                "review",
+                "plan",
+                "validation",
+                "delivery",
+                "artifacts",
+            ],
+        )
+        self.assertEqual(
+            parser.coding_tab_class,
+            "coding-tab",
+            "编码应作为导航右侧的独立入口",
+        )
 
 
 if __name__ == "__main__":

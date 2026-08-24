@@ -48,6 +48,15 @@ STAGE_DEFINITIONS = (
     ("hammer_validation", "Hammer 验证", None),
     ("delivery", "Hammer 交付", None),
 )
+CORE_CODING_ARTIFACTS = frozenset(
+    {
+        "code-facts.json",
+        "change-surface.json",
+        "locations.json",
+        "implementation-plan.md",
+        "coding-stage-handoff.json",
+    }
+)
 
 
 class CoshHammerError(RuntimeError):
@@ -1375,7 +1384,14 @@ def _artifact_category(scope: str, relative: Path) -> str:
     lowered = "/".join(parts).lower()
     name = relative.name.lower()
     if scope == "cosh":
-        return "coding" if parts and parts[0] == "coding" else "requirement"
+        if parts and parts[0] == "coding":
+            coding_relative = Path(*parts[1:]).as_posix()
+            return (
+                "coding"
+                if coding_relative in CORE_CODING_ARTIFACTS
+                else "coding_internal"
+            )
+        return "requirement"
     if lowered.startswith("design/drafts/stage1-"):
         return "requirement"
     if lowered.startswith("design/reviews/"):

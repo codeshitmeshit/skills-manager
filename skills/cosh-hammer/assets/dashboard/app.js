@@ -234,6 +234,18 @@ function artifactList(data, category = null) {
   return list;
 }
 
+function artifactDisclosure(data, category, title) {
+  const count = (data.artifacts || []).filter(item => item.category === category).length;
+  const disclosure = element("details", "artifact-disclosure");
+  const summary = element("summary", "artifact-disclosure-summary");
+  summary.append(
+    element("strong", "", `${title} · ${count}`),
+    element("span", "muted", "点击展开"),
+  );
+  disclosure.append(summary, artifactList(data, category));
+  return disclosure;
+}
+
 function renderOverview(data) {
   const fragment = document.createDocumentFragment();
   const header = viewHeader("Hammer 主流程", "Hammer 是唯一状态机；Cosh 只增强编码执行和观察。");
@@ -477,7 +489,7 @@ function renderCoding(data) {
   } else {
     fragment.append(emptyState("等待 Hammer Plan 进入编码父任务并生成 Cosh 细分任务。"));
   }
-  fragment.append(element("h3", "section-heading", "编码产物"), artifactList(data, "coding"));
+  fragment.append(artifactDisclosure(data, "coding", "编码产物"));
   return fragment;
 }
 

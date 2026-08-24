@@ -67,7 +67,7 @@ python3 <skill-root>/scripts/start_cosh_hammer_dashboard.py \
 
 端口冲突时直接报告并停止，不得随机换端口。观察板通过 SSE 实时读取 `.hammer/` 与 `.cosh/hammer-plugin/`，但所有控制只允许修改插件状态。
 
-页面以 Hammer 阶段组织为总览、需求、设计、三路评审、计划、编码、验证、交付和全部产物。计划页只读展示 Hammer Plan；独立编码页按 Hammer 父任务分组展示完整全局任务树、实现完成数、已提交数、`awaiting_commit` 待批准状态、checkpoint commit 与单独/连续推进控制。Hammer 与 Cosh 的文本、Markdown、JSON 产物可按需读取；二进制或超大文件只展示元信息。
+页面左侧按 Hammer 阶段组织为总览、需求、设计、三路评审、计划、验证、交付和全部产物；编码作为右侧独立的 Cosh 入口，不混入 Hammer 主流程标签。计划页只读展示 Hammer Plan；独立编码页按 Hammer 父任务分组展示完整全局任务树、实现完成数、已提交数、`awaiting_commit` 待批准状态、checkpoint commit 与单独/连续推进控制。Hammer 与 Cosh 的文本、Markdown、JSON 产物可按需读取；二进制或超大文件只展示元信息。
 
 ## 交付检查
 
