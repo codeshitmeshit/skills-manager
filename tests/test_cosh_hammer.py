@@ -1889,6 +1889,120 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertEqual(stability["blocking_issue_count"], 2)
         self.assertEqual(stability["max_severity"], "P0")
 
+    def test_review_round_distinguishes_missing_optional_evidence_from_none(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="review-missing-evidence",
+            refined_requirement="区分 Hammer 原始评审缺失字段与显式 none。",
+            source={"kind": "text", "value": "区分评审证据字段"},
+            hammer_root=self.hammer_root,
+        )
+        round_dir = self.project / ".hammer" / "design" / "reviews" / "2"
+        round_dir.mkdir(parents=True)
+        (round_dir / "general.md").write_text(
+            "---\n"
+            "status_recommendation: reject_stage2\n"
+            "blocking_issue_count: 1\n"
+            "fallback_stage: stage2\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        for channel in ("security", "stability"):
+            (round_dir / f"{channel}.md").write_text(
+                "---\n"
+                "status_recommendation: pass\n"
+                "blocking_issue_count: 0\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+        status = self.state.build_status(self.project, "review-missing-evidence")
+        latest = status["review_results"]["rounds"][0]
+        general = next(
+            report for report in latest["reports"] if report["channel"] == "general"
+        )
+
+        self.assertEqual(latest["status"], "blocked")
+        self.assertIsNone(general["max_severity"])
+        self.assertIsNone(general["unresolved_finding_ids"])
+        self.assertEqual(general["evidence_consistency"], "partial")
+        self.assertEqual(general["evidence_warnings"], [])
+
+    def test_review_round_flags_explicit_none_that_contradicts_blocking_count(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="review-inconsistent-evidence",
+            refined_requirement="标记 Hammer 评审证据矛盾。",
+            source={"kind": "text", "value": "标记评审证据矛盾"},
+            hammer_root=self.hammer_root,
+        )
+        round_dir = self.project / ".hammer" / "design" / "reviews" / "2"
+        round_dir.mkdir(parents=True)
+        (round_dir / "general.md").write_text(
+            "---\n"
+            "status_recommendation: reject_stage2\n"
+            "blocking_issue_count: 1\n"
+            "max_severity: none\n"
+            "unresolved_finding_ids: none\n"
+            "fallback_stage: stage2\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        for channel in ("security", "stability"):
+            (round_dir / f"{channel}.md").write_text(
+                "---\n"
+                "status_recommendation: pass\n"
+                "blocking_issue_count: 0\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+        status = self.state.build_status(self.project, "review-inconsistent-evidence")
+        latest = status["review_results"]["rounds"][0]
+        general = next(
+            report for report in latest["reports"] if report["channel"] == "general"
+        )
+
+        self.assertEqual(latest["status"], "blocked")
+        self.assertEqual(general["evidence_consistency"], "inconsistent")
+        self.assertIn(
+            "阻塞问题为 1，但最高级别被明确标记为 none",
+            general["evidence_warnings"],
+        )
+        self.assertIn(
+            "阻塞问题为 1，但未闭合 Finding 被明确标记为 none",
+            general["evidence_warnings"],
+        )
+
+    def test_review_round_fails_closed_when_pass_contradicts_blocking_count(self) -> None:
+        self.state.initialize_launch(
+            self.project,
+            work_id="review-pass-contradiction",
+            refined_requirement="评审状态与阻塞数矛盾时保持阻塞。",
+            source={"kind": "text", "value": "评审矛盾时 fail closed"},
+            hammer_root=self.hammer_root,
+        )
+        round_dir = self.project / ".hammer" / "design" / "reviews" / "2"
+        round_dir.mkdir(parents=True)
+        for channel in ("general", "security", "stability"):
+            count = 1 if channel == "general" else 0
+            (round_dir / f"{channel}.md").write_text(
+                "---\n"
+                "status_recommendation: pass\n"
+                f"blocking_issue_count: {count}\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+        status = self.state.build_status(self.project, "review-pass-contradiction")
+        latest = status["review_results"]["rounds"][0]
+        general = next(
+            report for report in latest["reports"] if report["channel"] == "general"
+        )
+
+        self.assertEqual(general["evidence_consistency"], "inconsistent")
+        self.assertEqual(latest["status"], "blocked")
+
     def test_progress_marks_plan_as_next_after_review_has_passed(self) -> None:
         self.state.initialize_launch(
             self.project,
@@ -2477,6 +2591,8 @@ class CoshHammerStateTest(unittest.TestCase):
         self.assertIn('data.coding?.next_action', js)
         self.assertIn("textContent", js)
         self.assertNotIn("innerHTML", js)
+        self.assertIn("原始报告未提供", js)
+        self.assertIn("评审证据不一致", js)
 
     def test_dashboard_keeps_coding_outside_hammer_stage_tabs(self) -> None:
         class NavigationParser(HTMLParser):

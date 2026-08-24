@@ -309,11 +309,20 @@ function renderReview(data) {
         top.append(element("h3", "", labels[report.channel] || report.channel), element("span", `review-status ${report.status}`, report.status));
         card.append(top);
         const facts = element("dl", "review-facts");
-        addDefinition(facts, "最高级别", report.max_severity || "none");
+        const missingEvidence = report.report_kind === "round" ? "原始报告未提供" : "终态报告缺失";
+        addDefinition(facts, "最高级别", report.max_severity ?? missingEvidence);
         addDefinition(facts, "阻塞问题", report.blocking_issue_count === null ? "—" : String(report.blocking_issue_count));
         addDefinition(facts, "评审方式", [report.review_pass, report.review_mode].filter(Boolean).join(" · ") || "—");
-        addDefinition(facts, "未闭合 Finding", report.unresolved_finding_ids || "none");
+        addDefinition(facts, "未闭合 Finding", report.unresolved_finding_ids ?? missingEvidence);
         card.append(facts);
+        if (report.evidence_consistency === "inconsistent") {
+          const warning = element("section", "review-evidence-warning");
+          warning.append(element("strong", "", "评审证据不一致"));
+          const issues = element("ul");
+          (report.evidence_warnings || []).forEach(message => issues.append(element("li", "", message)));
+          warning.append(issues);
+          card.append(warning);
+        }
         if (report.artifact_path) {
           const open = element("button", "open-review", "查看评审原文");
           open.type = "button";

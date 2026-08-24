@@ -111,6 +111,8 @@ dd { overflow-wrap: anywhere; margin: 6px 0 0; font-size: 18px; font-weight: 750
 .review-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 18px 0; }
 .review-facts div { min-width: 0; padding: 10px; border-radius: 9px; background: #07101d; }
 .review-facts dd { font-size: 14px; }
+.review-evidence-warning { margin-top: 14px; padding: 14px 16px; border: 1px solid rgba(255, 114, 124, .55); border-radius: 12px; background: rgba(255, 114, 124, .08); color: var(--red); }
+.review-evidence-warning ul { margin: 8px 0 0; padding-left: 20px; }
 .open-review { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: #12233c; cursor: pointer; }
 .open-review:hover { border-color: var(--blue); }
 .artifact-viewer { position: fixed; inset: 0; z-index: 20; padding: 4vw; background: rgb(2 7 14 / 82%); backdrop-filter: blur(8px); }

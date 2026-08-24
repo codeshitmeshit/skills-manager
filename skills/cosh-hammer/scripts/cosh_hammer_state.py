@@ -1428,6 +1428,7 @@ def _review_report(
         return {
             "channel": channel,
             "status": "pending",
+            "report_kind": "round" if round_number is not None else "final",
             "review_mode": None,
             "review_pass": None,
             "review_attempt": None,
@@ -1435,6 +1436,8 @@ def _review_report(
             "unresolved_finding_ids": None,
             "max_severity": None,
             "fallback_stage": None,
+            "evidence_consistency": "pending",
+            "evidence_warnings": [],
             "artifact_path": None,
         }
     text = path.read_text(encoding="utf-8")
@@ -1460,21 +1463,61 @@ def _review_report(
         )
         review_mode = None
         review_pass = "full" if round_number == 1 else "closure"
+    unresolved = _markdown_field(text, "unresolved_finding_ids")
+    severity = _markdown_field(text, "max_severity")
+    evidence_warnings: list[str] = []
+    none_markers = {"none", "null", "[]", "-", "无", "n/a"}
+    if count is None:
+        evidence_warnings.append("缺少或无法解析 blocking_issue_count")
+    if status.lower() in {"pass", "passed"} and count not in {None, 0}:
+        evidence_warnings.append(
+            f"评审状态为 {status.lower()}，但阻塞问题为 {count}"
+        )
+    if count is not None and count > 0:
+        if severity is not None and severity.strip().lower() in none_markers:
+            evidence_warnings.append(
+                f"阻塞问题为 {count}，但最高级别被明确标记为 none"
+            )
+        if unresolved is not None and unresolved.strip().lower() in none_markers:
+            evidence_warnings.append(
+                f"阻塞问题为 {count}，但未闭合 Finding 被明确标记为 none"
+            )
+    report_kind = "round" if round_number is not None else "final"
+    if report_kind == "final":
+        if severity is None:
+            evidence_warnings.append("终态报告缺少 max_severity")
+        if unresolved is None:
+            evidence_warnings.append("终态报告缺少 unresolved_finding_ids")
+    evidence_consistency = "inconsistent" if evidence_warnings else "complete"
+    if (
+        report_kind == "round"
+        and not evidence_warnings
+        and (severity is None or unresolved is None)
+    ):
+        evidence_consistency = "partial"
     return {
         "channel": channel,
         "status": status.lower(),
+        "report_kind": report_kind,
         "review_mode": review_mode,
         "review_pass": review_pass,
         "review_attempt": attempt,
         "blocking_issue_count": count,
-        "unresolved_finding_ids": _markdown_field(text, "unresolved_finding_ids"),
-        "max_severity": _markdown_field(text, "max_severity"),
+        "unresolved_finding_ids": unresolved,
+        "max_severity": severity,
         "fallback_stage": _markdown_field(text, "fallback_stage"),
+        "evidence_consistency": evidence_consistency,
+        "evidence_warnings": evidence_warnings,
         "artifact_path": artifact_path,
     }
 
 
 def _review_round_status(reports: list[dict[str, Any]]) -> str:
+    if any(
+        report.get("evidence_consistency") == "inconsistent"
+        for report in reports
+    ):
+        return "blocked"
     statuses = {str(report.get("status", "unknown")).lower() for report in reports}
     if statuses & {"blocked", "reject_stage1", "reject_stage2", "failed", "unknown"}:
         return "blocked"

@@ -18,7 +18,7 @@ schema v1 单父任务快照标记为 `legacy_single_parent_readonly`，历史�
 
 ## Hammer 投影与安全
 
-总览标识当前/下一步/已完成阶段。三路评审区分 round 原始报告和顶层终态报告，缺少权威结论时保持 unknown 并 fail closed。其他 Hammer 阶段页面只读，不出现插件推进控制。
+总览标识当前/下一步/已完成阶段。三路评审区分 round 原始报告和顶层终态报告：原始报告读取 `status_recommendation` 与 `blocking_issue_count`，Round 1 固定展示 `full`，Round 2–4 固定展示 `closure`；顶层终态报告读取 `status`。原始报告未提供可选的 `max_severity` 或 `unresolved_finding_ids` 时显示“原始报告未提供”，不得伪装成 `none`；阻塞数与显式 `none`、通过状态等字段矛盾时显示“评审证据不一致”并保持 fail closed。缺少权威结论时保持 unknown 并 fail closed。其他 Hammer 阶段页面只读，不出现插件推进控制。
 
 只有合法 `workspace.worktree decision=migrated_away path=...` 事件且目标通过 Git 注册与仓库归属校验后才跟随活动 worktree；插件状态和控制仍位于入口目录。缓存 `dashboard/dashboard-state.json` 只用于恢复显示，不是门禁证据。投影失败时展示 stale 快照并禁用全部控制。
 
