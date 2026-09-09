@@ -1,4 +1,4 @@
 interface:
   display_name: "教程 HTML 文档"
-  short_description: "将技术内容整理成 guide.html 与 learn 页面结构的 HTML 教程站点"
-  default_prompt: "Use $cosh-tutorial-html-docs to turn my technical notes into a polished static HTML tutorial site with .cosh-docs/guide.html, .cosh-docs/learn pages, and local assets."
+  short_description: "将技术资料或多 Agent 仓库逆向分析整理成可离线阅读的 HTML 教程站点"
+  default_prompt: "Use $cosh-tutorial-html-docs to create an offline HTML tutorial from my notes, or analyze this repository with subagents and explain its architecture, execution chains, and Git history."
