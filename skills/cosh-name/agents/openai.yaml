@@ -1,0 +1,6 @@
+interface:
+  display_name: "cosh-name"
+  short_description: "手动选择分类前缀，空参时展示推荐标题，支持采用推荐或修改后更新"
+  default_prompt: "Use $cosh-name to recommend a title for the current conversation and let me choose its prefix before renaming."
+policy:
+  allow_implicit_invocation: false
